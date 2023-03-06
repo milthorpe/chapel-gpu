@@ -50,7 +50,7 @@ In this single-locale scenario, you are supposed to create and edit one Chapel s
       __global__ void vc(float *dA, float *dB, int N) {
         int id = blockIdx.x * blockDim.x + threadIdx.x;
         if (id < N) {
-	      dA[id] = dB[id];
+         dA[id] = dB[id];
         }
       }
 
@@ -165,7 +165,7 @@ In this single-locale scenario, you are supposed to create and edit one Chapel s
          forall i in GPU(1..n, GPUCallback) { ... }
 
 
-      If the this lambda version does not work, try `this workaround <https://github.com/chapel-lang/chapel/issues/8351>`_:
+      If this lambda version does not work, try `this workaround <https://github.com/chapel-lang/chapel/issues/8351>`_:
          
       .. code-block:: chapel
 
@@ -334,7 +334,7 @@ In the multi-locale scenario, you are supposed to update ``vc.hybrid.chpl`` slig
            - ``lA(1793)``
 
 
-      Notice that ``A[0]`` in ``vcCUDA(float *A, ...)`` corresponds to the first element of the local slice, which is why the third argument is zero (= ``start``) and thr fourth argument is ``hi-lo`` (= ``end``).
+      Notice that ``A[0]`` in ``vcCUDA(float *A, ...)`` corresponds to the first element of the local slice, which is why the third argument is zero (= ``start``) and the fourth argument is ``hi-lo`` (= ``end``).
 
 3. Update ``GPU()``
 

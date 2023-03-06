@@ -7,7 +7,7 @@ Writing MID-level programs
 MID-level API
 ######################
 
-To reiterate, the biggest motivation for introducing ``MID-LOW`` and ``MID`` -level GPU API is moving some of low-level GPU operations to the Chapel-level. Consider the following GPU callback function and C function:
+To reiterate, the biggest motivation for introducing ``MID-LOW`` and ``MID`` -level GPU API is moving some of the low-level GPU operations to the Chapel-level. Consider the following GPU callback function and C function:
 
 .. code-block:: chapel
    :caption: vc.hybrid.chpl

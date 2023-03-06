@@ -39,9 +39,17 @@ module GPUAPI {
     // cudaMallocPitch
     extern proc MallocPitch(ref devPtr: c_void_ptr, ref pitch: c_size_t, width: c_size_t, height: c_size_t);
 
+    // cudaMallocManaged
+    extern proc MallocUnified(ref umemPtr: c_void_ptr, size: c_size_t);
+    // cudaMemPrefetchAsync
+    extern proc PrefetchToDevice(umemPtr: c_void_ptr, start: c_size_t, end: c_size_t, device: int(32));
+
     extern proc Memcpy(dst: c_void_ptr, src: c_void_ptr, count: c_size_t, kind: int);
     extern proc Memcpy2D(dst: c_void_ptr, dpitch: c_size_t, src: c_void_ptr, spitch: c_size_t, width: c_size_t, height: c_size_t, kind: int);
     extern proc Free(devPtr: c_void_ptr);
+
+    pragma "no doc"
+    inline operator c_void_ptr.+(a: c_void_ptr, b: uint(64)) return __primitive("+", a, b);
 
     class GPUArray {
       var devPtr: c_void_ptr;
@@ -206,6 +214,80 @@ module GPUAPI {
 
       inline proc dPtr(): c_ptr(c_void_ptr) {
         return devPtr;
+      }
+    }
+
+    class GPUUnifiedArray {
+      var umemPtr: c_void_ptr;
+      var size: int;
+      var eltSize: c_size_t;
+      type eltType;
+      var dom: domain;
+      var arr: [dom] eltType;
+
+      proc init(type eltType, size: int) {
+        // Low-level info
+        this.umemPtr = nil;
+        // size info
+        this.size = size;
+        this.eltSize = c_sizeof(eltType);
+        this.eltType = eltType;
+        this.dom = {0..#size};
+        this.complete();
+        // allocation
+        MallocUnified(this.umemPtr, size * eltSize);
+        if (debugGPUAPI) { writeln("malloc'ed unified mem: ", umemPtr, " sizeInBytes: ", size*eltSize); }
+        //this.arr = dom.buildArrayWith(eltType, umemPtr: _ddata(eltType), size);
+      }
+
+      proc deinit() {
+          Free(umemPtr);
+      }
+
+      inline proc free() {
+        if (debugGPUAPI) { writeln("free : ", umemPtr); }
+        Free(umemPtr);
+      }
+
+      inline proc dPtr(): c_void_ptr {
+        return umemPtr;
+      }
+
+      /*
+      * Get a pointer to the element at the given offset (number of elements)
+      * from the start of this array.
+      */
+      inline proc dPtr(offset: int): c_void_ptr {
+        return umemPtr + eltSize * offset;
+      }
+
+      proc copyFrom(ref arr) {
+        const arrPtr = c_ptrTo(arr);
+        //writeln("copying unified mem: ", umemPtr, " arrPtr: ", arrPtr, " sizeInBytes: ", size*eltSize);
+        c_memcpy(umemPtr, arrPtr, size * eltSize);
+      }
+
+      inline proc prefetchToDevice(startIdx: int, endIdx: int, device: int(32)) {
+        //writeln("PrefetchToDevice ", umemPtr, ": ", startIdx*eltSize, "..", (endIdx+1)*eltSize);
+        PrefetchToDevice(umemPtr, startIdx*eltSize, (endIdx+1)*eltSize, device);
+      }
+    }
+
+    inline proc toDevice(args: GPUArray ...?n) {
+      for ga in args {
+        ga.toDevice();
+      }
+    }
+
+    inline proc fromDevice(args: GPUArray ...?n) {
+      for ga in args {
+        ga.fromDevice();
+      }
+    }
+
+    inline proc free(args: GPUArray ...?n) {
+      for ga in args {
+        ga.free();
       }
     }
 }

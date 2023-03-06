@@ -11,7 +11,7 @@ MID-level API Reference
 
    .. method:: proc init(ref arr, pitched=false)
 
-      Allocates memory on the device. The allocation size is automatically computed by this module -i.e., ``(arr.size: c_size_t) * c_sizeof(arr.eltType)``, which means the index space is linearlized when ``arr`` is multi-dimensional. Also, if ``arr`` is 2D and ``pitched=true``, pitched allocation is performed and the host and device pitch can be obtained by doing ``obj.hpitch`` and ``obj.dpitch``. Note that the allocated memory is automatically reclaimed when the object is deleted.
+      Allocates memory on the device. The allocation size is automatically computed by this module -i.e., ``(arr.size: c_size_t) * c_sizeof(arr.eltType)``, which means the index space is linearized when ``arr`` is multi-dimensional. Also, if ``arr`` is 2D and ``pitched=true``, pitched allocation is performed and the host and device pitch can be obtained by doing ``obj.hpitch`` and ``obj.dpitch``. Note that the allocated memory is automatically reclaimed when the object is deleted.
 
       :arg arr: The reference of the non-distributed Chapel Array that will be mapped onto the device.
       :arg pitched: whether pitched allocation is performed or not (default is false)
@@ -46,7 +46,7 @@ MID-level API Reference
          // GPUIterator
          forall i in GPU(D, GPUCallBack) { A(i) = ...; }
 
-      .. note:: The allocated memory resides on the `current device`. With the ``GPUIterator``, the current device is automatically set by it. Without it, it is the user's responsibilities to set the current device (e.g., by calling the ``SetDevice`` API below). Otherwise, the default device (usually the first GPU) will be used.
+      .. note:: The allocated memory resides on the `current device`. With the ``GPUIterator``, the current device is automatically set by it. Without it, it is the user's responsibility to set the current device (e.g., by calling the ``SetDevice`` API below). Otherwise, the default device (usually the first GPU) will be used.
 
       .. note:: With distributed arrays, it is required to use Chapel array's `localSlice API <https://chapel-lang.org/docs/builtins/ChapelArray.html#ChapelArray.localSlice>`_ to get the local portion of the distributed array. With the ``GPUIterator``, the local portion is already computed and given as the first two arguments (``lo`` and ``hi``).
 
@@ -132,6 +132,29 @@ MID-level API Reference
 
    .. note:: A working example can be found `here <https://github.com/ahayashi/chapel-gpu/blob/master/example/gpuapi/jagged/jagged.chpl>`_.
 
+.. class:: GPUUnifiedArray
+
+   .. method:: proc init(type eltType, size: c_size_t)
+
+      Allocates a one-dimensional array in GPU unified memory. The allocation size is automatically computed by this module -i.e., ``(size: c_size_t) * c_sizeof(eltType)``.
+      Note that the allocated memory is automatically reclaimed when the object is deleted.
+
+      :arg eltType: The Chapel type required for the elements of the array
+      :arg size: The number of elements in the array
+
+      .. code-block:: chapel
+         :emphasize-lines: 6,21
+
+         // Example 1: Non-distributed array
+         var A = new GPUUnifiedArray(int, n);
+
+         proc GPUCallBack(lo: int, hi: int, N: int) {
+           A(i) = ...;
+           ...
+         }
+
+         // GPUIterator
+         forall i in GPU(1..n, GPUCallBack) { A(i) = ...; }
 
 MID-LOW-level API Reference
 ############################
@@ -196,7 +219,7 @@ MID-LOW-level API Reference
    :arg height: The number of rows (height)
    :type height: `c_size_t`
 
-   .. note:: A working example can be found `here <https://github.com/ahayashi/chapel-gpu/blob/master/example/gpuapi/pitched2d/pitched2d.chpl>`_. The detailed descirption of the underlying CUDA API can be found `here <https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html#group__CUDART__MEMORY_1g32bd7a39135594788a542ae72217775c>`_.
+   .. note:: A working example can be found `here <https://github.com/ahayashi/chapel-gpu/blob/master/example/gpuapi/pitched2d/pitched2d.chpl>`_. The detailed description of the underlying CUDA API can be found `here <https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html#group__CUDART__MEMORY_1g32bd7a39135594788a542ae72217775c>`_.
 
 .. method:: Memcpy(dst: c_void_ptr, src: c_void_ptr, count: c_size_t, kind: int)
 
@@ -256,7 +279,7 @@ MID-LOW-level API Reference
    :arg kind: type of transfer (``0``: host-to-device, ``1``: device-to-host)
    :type kind: `int`
 
-   .. note:: A working example can be found `here <https://github.com/ahayashi/chapel-gpu/blob/master/example/gpuapi/pitched2d/pitched2d.chpl>`_. The detailed descirption of the underlying CUDA API can be found `here <https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html#group__CUDART__MEMORY_1g3a58270f6775efe56c65ac47843e7cee>`_.
+   .. note:: A working example can be found `here <https://github.com/ahayashi/chapel-gpu/blob/master/example/gpuapi/pitched2d/pitched2d.chpl>`_. The detailed description of the underlying CUDA API can be found `here <https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html#group__CUDART__MEMORY_1g3a58270f6775efe56c65ac47843e7cee>`_.
 
 .. method:: Free(devPtr: c_void_ptr)
 
