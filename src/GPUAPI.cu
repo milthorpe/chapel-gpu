@@ -100,7 +100,7 @@ extern "C" {
     CudaSafeCall(cudaMallocPitch(devPtr, pitch, width, height));
   }
 
-  void MallocUnified(void** umemPtr, size_t size) {
+  void MallocManaged(void** umemPtr, size_t size) {
     CudaSafeCall(cudaMallocManaged(umemPtr, size));
   }
 

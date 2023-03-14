@@ -40,7 +40,7 @@ module GPUAPI {
     extern proc MallocPitch(ref devPtr: c_void_ptr, ref pitch: c_size_t, width: c_size_t, height: c_size_t);
 
     // cudaMallocManaged
-    extern proc MallocUnified(ref umemPtr: c_void_ptr, size: c_size_t);
+    extern proc MallocManaged(ref umemPtr: c_ptr(?eltType), size: c_size_t);
     // cudaMemPrefetchAsync
     extern proc PrefetchToDevice(umemPtr: c_void_ptr, start: c_size_t, end: c_size_t, device: int(32));
 
@@ -218,39 +218,26 @@ module GPUAPI {
     }
 
     class GPUUnifiedArray {
-      var umemPtr: c_void_ptr;
-      var size: int;
-      var eltSize: c_size_t;
       type eltType;
+      var umemPtr: c_ptr(eltType) = nil;
       var dom: domain;
-      var arr: [dom] eltType;
+      var a = makeArrayFromPtr(umemPtr, dom.size);
 
-      proc init(type eltType, size: int) {
-        // Low-level info
-        this.umemPtr = nil;
-        // size info
-        this.size = size;
-        this.eltSize = c_sizeof(eltType);
+      proc init(type eltType, dom: domain) {
         this.eltType = eltType;
-        this.dom = {0..#size};
-        this.complete();
+        this.dom = dom;
         // allocation
-        MallocUnified(this.umemPtr, size * eltSize);
-        if (debugGPUAPI) { writeln("malloc'ed unified mem: ", umemPtr, " sizeInBytes: ", size*eltSize); }
-        //this.arr = dom.buildArrayWith(eltType, umemPtr: _ddata(eltType), size);
+        MallocManaged(umemPtr, dom.size * c_sizeof(eltType));
+        if (debugGPUAPI) { writeln("malloc'ed managed: ", umemPtr, " sizeInBytes: ", dom.size*c_sizeof(eltType)); }
       }
 
       proc deinit() {
-          Free(umemPtr);
-      }
-
-      inline proc free() {
-        if (debugGPUAPI) { writeln("free : ", umemPtr); }
-        Free(umemPtr);
+        if (debugGPUAPI) { writeln("free : ", c_ptrTo(a)); }
+        Free(c_ptrTo(a));
       }
 
       inline proc dPtr(): c_void_ptr {
-        return umemPtr;
+        return c_ptrTo(a);
       }
 
       /*
@@ -258,18 +245,13 @@ module GPUAPI {
       * from the start of this array.
       */
       inline proc dPtr(offset: int): c_void_ptr {
-        return umemPtr + eltSize * offset;
+        return c_ptrTo(a) + c_sizeof(eltType) * offset;
       }
 
-      proc copyFrom(ref arr) {
-        const arrPtr = c_ptrTo(arr);
-        //writeln("copying unified mem: ", umemPtr, " arrPtr: ", arrPtr, " sizeInBytes: ", size*eltSize);
-        c_memcpy(umemPtr, arrPtr, size * eltSize);
-      }
-
+      // TODO handle multi-dimensional array segments (non-contiguous?)
       inline proc prefetchToDevice(startIdx: int, endIdx: int, device: int(32)) {
-        //writeln("PrefetchToDevice ", umemPtr, ": ", startIdx*eltSize, "..", (endIdx+1)*eltSize);
-        PrefetchToDevice(umemPtr, startIdx*eltSize, (endIdx+1)*eltSize, device);
+        if (debugGPUAPI) { writeln("PrefetchToDevice for umemPtr ", c_ptrTo(a), " device ", device, ": ", startIdx*c_sizeof(eltType), "..", (endIdx+1)*c_sizeof(eltType)); }
+        PrefetchToDevice(c_ptrTo(a), startIdx*c_sizeof(eltType), (endIdx+1)*c_sizeof(eltType), device);
       }
     }
 
