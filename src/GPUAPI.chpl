@@ -218,17 +218,17 @@ module GPUAPI {
     }
 
     class GPUUnifiedArray {
-      type eltType;
-      var umemPtr: c_ptr(eltType) = nil;
+      type etype;
+      var umemPtr: c_ptr(etype) = nil;
       var dom: domain;
       var a = makeArrayFromPtr(umemPtr, dom.size);
 
-      proc init(type eltType, dom: domain) {
-        this.eltType = eltType;
+      proc init(type etype, dom: domain) {
+        this.etype = etype;
         this.dom = dom;
         // allocation
-        MallocManaged(umemPtr, dom.size * c_sizeof(eltType));
-        if (debugGPUAPI) { writeln("malloc'ed managed: ", umemPtr, " sizeInBytes: ", dom.size*c_sizeof(eltType)); }
+        MallocManaged(umemPtr, dom.size * c_sizeof(etype));
+        if (debugGPUAPI) { writeln("malloc'ed managed: ", umemPtr, " sizeInBytes: ", dom.size*c_sizeof(etype)); }
       }
 
       proc deinit() {
@@ -245,13 +245,13 @@ module GPUAPI {
       * from the start of this array.
       */
       inline proc dPtr(offset: int): c_void_ptr {
-        return c_ptrTo(a) + c_sizeof(eltType) * offset;
+        return c_ptrTo(a) + c_sizeof(etype) * offset;
       }
 
       // TODO handle multi-dimensional array segments (non-contiguous?)
       inline proc prefetchToDevice(startIdx: int, endIdx: int, device: int(32)) {
-        if (debugGPUAPI) { writeln("PrefetchToDevice for umemPtr ", c_ptrTo(a), " device ", device, ": ", startIdx*c_sizeof(eltType), "..", (endIdx+1)*c_sizeof(eltType)); }
-        PrefetchToDevice(c_ptrTo(a), startIdx*c_sizeof(eltType), (endIdx+1)*c_sizeof(eltType), device);
+        if (debugGPUAPI) { writeln("PrefetchToDevice for umemPtr ", c_ptrTo(a), " device ", device, ": ", startIdx*c_sizeof(etype), "..", (endIdx+1)*c_sizeof(etype)); }
+        PrefetchToDevice(c_ptrTo(a), startIdx*c_sizeof(etype), (endIdx+1)*c_sizeof(etype), device);
       }
     }
 
