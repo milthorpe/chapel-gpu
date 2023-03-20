@@ -13,6 +13,8 @@ void Malloc(void**, size_t);
 void MallocPtr(void***, size_t);
 void MallocPtrPtr(void****, size_t);
 void MallocPitch(void**, size_t*, size_t, size_t);
+void MallocManaged(void**, size_t);
+void PrefetchToDevice(void*, size_t, size_t, int device);
 void Memcpy(void*, void*, size_t, int);
 void Memcpy2D(void*, size_t, void*, size_t, size_t, size_t, int);
 void Free(void*);

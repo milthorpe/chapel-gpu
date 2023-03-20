@@ -7,7 +7,7 @@ Prerequisites
 
 * Chapel: 1.28. Detailed instructions for installing Chapel can be found: `here <https://chapel-lang.org/docs/usingchapel/QUICKSTART.html>`_.
 
-* GPU Compilers & Runtimes: ``GPUIterator`` and ``GPUAPI`` require either of the following GPU programing environments.
+* GPU Compilers & Runtimes: ``GPUIterator`` and ``GPUAPI`` require either of the following GPU programming environments.
 
    * NVIDIA CUDA: Tested with 10.2
    * AMD HIP: Tested with 4.1
@@ -60,7 +60,7 @@ This produces the following files:
    BuildGPUCode.cmake, CMake File, ``share/cmake/ChapelGPUAPI``, "A CMake file that compiles X.cu to either CUDA/HIP/DPC++ GPUs."
    gpuapiX-config[-nonconfig].cmake, CMake File, ``share/cmake/ChapelGPUAPI``, "A CMake config file that allows an external CMake project to find the location of this installation (X is either CUDA, HIP, or DPCPP)"
 
-By default, the libraries are installed into :code:`chapel-gpu/install`. If you wish to install it into your preferred directly, please type:
+By default, the libraries are installed into :code:`chapel-gpu/install`. If you wish to install it into your preferred directory, please type:
 
 .. code-block:: bash
 
@@ -72,7 +72,7 @@ By default, the libraries are installed into :code:`chapel-gpu/install`. If you 
 
    **For AMD HIP Users**: Chapel-GPU relies on :code:`hipify-perl` to convert CUDA programs to HIP programs internally. If you are pretty sure HIP is installed on your system, but :code:`cmake` complains :code:`hipify-perl` is not found, consider updating the following cmake command in :code:`CMakeLists.txt`: :code:`find_program(CHPL_GPU_HIPIFY_EXECUTABLE ...)`. For example, it would be a good idea to add other hint paths to :code:`PATHS` in addition to :code:`${HIP_ROOT_DIR}`. For more details please see `CMake Documentation <https://cmake.org/cmake/help/latest/command/find_program.html>`_.
 
-   **For DPC++ Users**: Chapel-GPU relies on :code:`dpct` to convert CUDA programs to DPC++ programs internally, which requires CUDA header files. If :code:`cmake` complains CUDA is not found, please set :code:`CUDA_HOME` approprietly.
+   **For DPC++ Users**: Chapel-GPU relies on :code:`dpct` to convert CUDA programs to DPC++ programs internally, which requires CUDA header files. If :code:`cmake` complains CUDA is not found, please set :code:`CUDA_HOME` appropriately.
 
 
 3. source ``env.sh``
@@ -83,7 +83,7 @@ By default, the libraries are installed into :code:`chapel-gpu/install`. If you 
    source ./install/bin/env.sh
 
 |
-   This sets 1) ``$CHPL_GPU_HOME``, and 2) environment variables related to CUDA/HIP/OpenCL/DPC++ installation directory, the latter of which can be referred when the user creates object files for thier GPU programs.
+   This sets 1) ``$CHPL_GPU_HOME``, and 2) environment variables related to CUDA/HIP/OpenCL/DPC++ installation directory, the latter of which can be referred when the user creates object files for their GPU programs.
 
 4. Build and run a test program
 

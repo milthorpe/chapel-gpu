@@ -39,9 +39,17 @@ module GPUAPI {
     // cudaMallocPitch
     extern proc MallocPitch(ref devPtr: c_void_ptr, ref pitch: c_size_t, width: c_size_t, height: c_size_t);
 
+    // cudaMallocManaged
+    extern proc MallocManaged(ref umemPtr: c_ptr(?eltType), size: c_size_t);
+    // cudaMemPrefetchAsync
+    extern proc PrefetchToDevice(umemPtr: c_void_ptr, start: c_size_t, end: c_size_t, device: int(32));
+
     extern proc Memcpy(dst: c_void_ptr, src: c_void_ptr, count: c_size_t, kind: int);
     extern proc Memcpy2D(dst: c_void_ptr, dpitch: c_size_t, src: c_void_ptr, spitch: c_size_t, width: c_size_t, height: c_size_t, kind: int);
     extern proc Free(devPtr: c_void_ptr);
+
+    pragma "no doc"
+    inline operator c_void_ptr.+(a: c_void_ptr, b: uint(64)) return __primitive("+", a, b);
 
     class GPUArray {
       var devPtr: c_void_ptr;
@@ -206,6 +214,62 @@ module GPUAPI {
 
       inline proc dPtr(): c_ptr(c_void_ptr) {
         return devPtr;
+      }
+    }
+
+    class GPUUnifiedArray {
+      type etype;
+      var umemPtr: c_ptr(etype) = nil;
+      var dom: domain;
+      var a = makeArrayFromPtr(umemPtr, dom.size);
+
+      proc init(type etype, dom: domain) {
+        this.etype = etype;
+        this.dom = dom;
+        // allocation
+        MallocManaged(umemPtr, dom.size * c_sizeof(etype));
+        if (debugGPUAPI) { writeln("malloc'ed managed: ", umemPtr, " sizeInBytes: ", dom.size*c_sizeof(etype)); }
+      }
+
+      proc deinit() {
+        if (debugGPUAPI) { writeln("free : ", c_ptrTo(a)); }
+        Free(c_ptrTo(a));
+      }
+
+      inline proc dPtr(): c_void_ptr {
+        return c_ptrTo(a);
+      }
+
+      /*
+      * Get a pointer to the element at the given offset (number of elements)
+      * from the start of this array.
+      */
+      inline proc dPtr(offset: int): c_void_ptr {
+        return c_ptrTo(a) + c_sizeof(etype) * offset;
+      }
+
+      // TODO handle multi-dimensional array segments (non-contiguous?)
+      inline proc prefetchToDevice(startIdx: int, endIdx: int, device: int(32)) {
+        if (debugGPUAPI) { writeln("PrefetchToDevice for umemPtr ", c_ptrTo(a), " device ", device, ": ", startIdx*c_sizeof(etype), "..", (endIdx+1)*c_sizeof(etype)); }
+        PrefetchToDevice(c_ptrTo(a), startIdx*c_sizeof(etype), (endIdx+1)*c_sizeof(etype), device);
+      }
+    }
+
+    inline proc toDevice(args: GPUArray ...?n) {
+      for ga in args {
+        ga.toDevice();
+      }
+    }
+
+    inline proc fromDevice(args: GPUArray ...?n) {
+      for ga in args {
+        ga.fromDevice();
+      }
+    }
+
+    inline proc free(args: GPUArray ...?n) {
+      for ga in args {
+        ga.free();
       }
     }
 }

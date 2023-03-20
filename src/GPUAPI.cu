@@ -100,6 +100,14 @@ extern "C" {
     CudaSafeCall(cudaMallocPitch(devPtr, pitch, width, height));
   }
 
+  void MallocManaged(void** umemPtr, size_t size) {
+    CudaSafeCall(cudaMallocManaged(umemPtr, size));
+  }
+
+  void PrefetchToDevice(void* umemPtr, size_t start, size_t end, int device) {
+    CudaSafeCall(cudaMemPrefetchAsync(static_cast<char *>(umemPtr)+start, end-start, device, NULL));
+  }
+
   void Memcpy(void* dst, void* src, size_t count, int kind) {
       switch (kind) {
       case 0:
