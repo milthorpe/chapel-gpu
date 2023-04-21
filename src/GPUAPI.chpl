@@ -220,8 +220,8 @@ module GPUAPI {
     class GPUUnifiedArray {
       type etype;
       var umemPtr: c_ptr(etype) = nil;
-      var dom: domain;
-      var a = makeArrayFromPtr(umemPtr, dom.size);
+      var dom: domain; // TODO handle non-zero-based domains
+      var a = makeArrayFromPtr(umemPtr, dom);
 
       proc init(type etype, dom: domain) {
         this.etype = etype;
@@ -241,35 +241,20 @@ module GPUAPI {
       }
 
       /*
-      * Get a pointer to the element at the given offset (number of elements)
-      * from the start of this array.
+      * Get a pointer to the element at the given index..
       */
-      inline proc dPtr(offset: int): c_void_ptr {
-        return c_ptrTo(a) + c_sizeof(etype) * offset;
+      inline proc dPtr(i: a.rank*a._value.dom.idxType): c_void_ptr {
+        return c_ptrTo(a(i));
       }
 
+      inline proc dPtr(i: a._value.dom.idxType ...a.rank): c_void_ptr {
+        return dPtr(i);
+      }
+      
       // TODO handle multi-dimensional array segments (non-contiguous?)
       inline proc prefetchToDevice(startIdx: int, endIdx: int, device: int(32)) {
         if (debugGPUAPI) { writeln("PrefetchToDevice for umemPtr ", c_ptrTo(a), " device ", device, ": ", startIdx*c_sizeof(etype), "..", (endIdx+1)*c_sizeof(etype)); }
         PrefetchToDevice(c_ptrTo(a), startIdx*c_sizeof(etype), (endIdx+1)*c_sizeof(etype), device);
-      }
-    }
-
-    inline proc toDevice(args: GPUArray ...?n) {
-      for ga in args {
-        ga.toDevice();
-      }
-    }
-
-    inline proc fromDevice(args: GPUArray ...?n) {
-      for ga in args {
-        ga.fromDevice();
-      }
-    }
-
-    inline proc free(args: GPUArray ...?n) {
-      for ga in args {
-        ga.free();
       }
     }
 }

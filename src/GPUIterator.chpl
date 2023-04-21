@@ -19,6 +19,7 @@ module GPUIterator {
     use Time;
     use BlockDist;
     use GPUAPI;
+    use GPUUnifiedDist;
 
     config param debugGPUIterator = false;
 
@@ -229,7 +230,7 @@ module GPUIterator {
              )
        where tag == iterKind.leader
        && D.isRectangular()
-       && isSubtype(D.dist.type, Block) {
+       && (isSubtype(D.dist.type, Block) || isSubtype(D.dist.type, GPUUnified)) {
 
       if (debugGPUIterator) {
         writeln("[DEBUG GPUITERATOR] GPUIterator (leader, block distributed)");
@@ -256,7 +257,7 @@ module GPUIterator {
       where tag == iterKind.follower
       && followThis.size == 1
       && D.isRectangular()
-      && isSubtype(D.dist.type, Block) {
+      && (isSubtype(D.dist.type, Block) || isSubtype(D.dist.type, GPUUnified)) {
 
       // index-neutral
       const (followInds,) = followThis;
@@ -280,7 +281,7 @@ module GPUIterator {
              )
       where tag == iterKind.standalone
       && D.isRectangular()
-      && isSubtype(D.dist.type, Block) {
+      && (isSubtype(D.dist.type, Block) || isSubtype(D.dist.type, GPUUnified)) {
 
       if (debugGPUIterator) {
         writeln("[DEBUG GPUITERATOR] GPUIterator (standalone distributed)");
@@ -306,7 +307,7 @@ module GPUIterator {
              CPUPercent: int = 0
              )
       where D.isRectangular()
-      && isSubtype(D.dist.type, Block) {
+      && (isSubtype(D.dist.type, Block) || isSubtype(D.dist.type, GPUUnified)) {
 
       if (debugGPUIterator) {
         writeln("[DEBUG GPUITERATOR] GPUIterator (serial distributed)");
