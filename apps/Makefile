@@ -31,7 +31,7 @@ baseline: $(TARGET).baseline.chpl
 
 # CUDA
 
-cuda: cuda.gpu cuda.hybrid cuda.hybrid.dist cuda.hybrid.dist.midlow cuda.hybrid.dist.mid
+cuda: cuda.gpu cuda.hybrid cuda.hybrid.dist cuda.hybrid.dist.midlow cuda.hybrid.dist.mid cuda.hybrid.dist.unified.mid
 
 build/lib$(TARGET).cuda.a: $(TARGET).cu
 	rm -rf build &&	mkdir build && cd build && cmake .. -DCMAKE_MODULE_PATH=$(CHPL_GPU_CMAKE_PATH) && make

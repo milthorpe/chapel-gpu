@@ -134,13 +134,14 @@ MID-level API Reference
 
 .. class:: GPUUnifiedArray
 
-   .. method:: proc init(type eltType, size: c_size_t)
+   .. method:: proc init(type eltType, dom: domain)
 
       Allocates a one-dimensional array in GPU unified memory. The allocation size is automatically computed by this module -i.e., ``(size: c_size_t) * c_sizeof(eltType)``.
       Note that the allocated memory is automatically reclaimed when the object is deleted.
+      There is no support for unified pitched memory.
 
       :arg eltType: The Chapel type required for the elements of the array
-      :arg size: The number of elements in the array
+      :arg dom: The domain over which to elements of the array are defined
 
       .. code-block:: chapel
          :emphasize-lines: 6,21

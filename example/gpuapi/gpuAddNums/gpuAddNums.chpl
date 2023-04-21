@@ -15,8 +15,6 @@ extern {
     CUfunction  function;
     int         devCount;
 
-    double X;
-
     checkCudaErrors(cuInit(0));
     checkCudaErrors(cuDeviceGetCount(&devCount));
     checkCudaErrors(cuDeviceGet(&device, 0));
@@ -81,3 +79,9 @@ dA.toDevice();
 launchKernel(dA.dPtr());
 dA.fromDevice();
 writeln(A);
+
+var uA = new GPUUnifiedArray(real(64), D);
+uA.a[0] = 10;
+launchKernel(uA.dPtr());
+DeviceSynchronize();
+writeln(uA.a);
