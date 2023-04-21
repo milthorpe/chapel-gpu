@@ -788,7 +788,7 @@ override proc GPUUnifiedDom.dsiDisplayRepresentation() {
 }
 
 // stopgap to avoid accessing locDoms field (and returning an array)
-proc GPUUnifiedDom.getLocDom(localeIdx) return locDoms(localeIdx);
+proc GPUUnifiedDom.getLocDom(localeIdx) { return locDoms(localeIdx); }
 
 //
 // Given a tuple of scalars of type t or range(t) match the shape but
@@ -876,9 +876,10 @@ iter GPUUnifiedDom.these(param tag: iterKind) where tag == iterKind.leader {
 // TODO: Can we just re-use the DefaultRectangularDom follower here?
 //
 iter GPUUnifiedDom.these(param tag: iterKind, followThis) where tag == iterKind.follower {
-  proc anyStridable(rangeTuple, param i: int = 0) param
+  proc anyStridable(rangeTuple, param i: int = 0) param {
       return if i == rangeTuple.size-1 then rangeTuple(i).stridable
              else rangeTuple(i).stridable || anyStridable(rangeTuple, i+1);
+  }
 
   if chpl__testParFlag then
     chpl__testParWriteln("GPUUnified domain follower invoked on ", followThis);
@@ -939,25 +940,25 @@ proc GPUUnifiedDom.dsiBuildArray(type eltType, param initElts:bool) {
 proc GPUUnifiedDom.parSafe param {
   compilerError("this domain type does not support 'parSafe'");
 }
-override proc GPUUnifiedDom.dsiLow           return whole.lowBound;
-override proc GPUUnifiedDom.dsiHigh          return whole.highBound;
-override proc GPUUnifiedDom.dsiAlignedLow    return whole.low;
-override proc GPUUnifiedDom.dsiAlignedHigh   return whole.high;
-override proc GPUUnifiedDom.dsiFirst         return whole.first;
-override proc GPUUnifiedDom.dsiLast          return whole.last;
-override proc GPUUnifiedDom.dsiStride        return whole.stride;
-override proc GPUUnifiedDom.dsiAlignment     return whole.alignment;
-proc GPUUnifiedDom.dsiNumIndices    return whole.sizeAs(uint);
-proc GPUUnifiedDom.dsiDim(d)        return whole.dim(d);
-proc GPUUnifiedDom.dsiDim(param d)  return whole.dim(d);
-proc GPUUnifiedDom.dsiDims()        return whole.dims();
-proc GPUUnifiedDom.dsiGetIndices()  return whole.getIndices();
-proc GPUUnifiedDom.dsiMember(i)     return whole.contains(i);
-proc GPUUnifiedDom.doiToString()    return whole:string;
+override proc GPUUnifiedDom.dsiLow           { return whole.lowBound; }
+override proc GPUUnifiedDom.dsiHigh          { return whole.highBound; }
+override proc GPUUnifiedDom.dsiAlignedLow    { return whole.low; }
+override proc GPUUnifiedDom.dsiAlignedHigh   { return whole.high; }
+override proc GPUUnifiedDom.dsiFirst         { return whole.first; }
+override proc GPUUnifiedDom.dsiLast          { return whole.last; }
+override proc GPUUnifiedDom.dsiStride        { return whole.stride; }
+override proc GPUUnifiedDom.dsiAlignment     { return whole.alignment; }
+proc GPUUnifiedDom.dsiNumIndices    { return whole.sizeAs(uint); }
+proc GPUUnifiedDom.dsiDim(d)        { return whole.dim(d); }
+proc GPUUnifiedDom.dsiDim(param d)  { return whole.dim(d); }
+proc GPUUnifiedDom.dsiDims()        { return whole.dims(); }
+proc GPUUnifiedDom.dsiGetIndices()  { return whole.getIndices(); }
+proc GPUUnifiedDom.dsiMember(i)     { return whole.contains(i); }
+proc GPUUnifiedDom.doiToString()    { return whole:string; }
 proc GPUUnifiedDom.dsiSerialWrite(x) { x.write(whole); }
-proc GPUUnifiedDom.dsiLocalSlice(param stridable, ranges) return whole((...ranges));
-override proc GPUUnifiedDom.dsiIndexOrder(i)              return whole.indexOrder(i);
-override proc GPUUnifiedDom.dsiMyDist()                   return dist;
+proc GPUUnifiedDom.dsiLocalSlice(param stridable, ranges) { return whole((...ranges)); }
+override proc GPUUnifiedDom.dsiIndexOrder(i)              { return whole.indexOrder(i); }
+override proc GPUUnifiedDom.dsiMyDist()                   { return dist; }
 
 //
 // INTERFACE NOTES: Could we make dsiSetIndices() for a rectangular
@@ -1016,7 +1017,7 @@ override proc GPUUnifiedDom.dsiDestroyDom() {
 //
 // Added as a performance stopgap to avoid returning a domain
 //
-proc LocGPUUnifiedDom.contains(i) return myBlock.contains(i);
+proc LocGPUUnifiedDom.contains(i) { return myBlock.contains(i); }
 
 
 ////// GPUUnifiedArr and LocGPUUnifiedArr methods /////////////////////////////////////
@@ -1029,7 +1030,7 @@ override proc GPUUnifiedArr.dsiDisplayRepresentation() {
   }
 }
 
-override proc GPUUnifiedArr.dsiGetBaseDom() return dom;
+override proc GPUUnifiedArr.dsiGetBaseDom() { return dom; }
 
 override proc GPUUnifiedArr.dsiIteratorYieldsLocalElements() param {
   return true;
@@ -1153,8 +1154,9 @@ proc GPUUnifiedArr.nonLocalAccess(i: rank*idxType) ref {
   return locArr(dom.dist.targetLocsIdx(i))(i);
 }
 
-proc GPUUnifiedArr.dsiAccess(i: idxType...rank) ref
+proc GPUUnifiedArr.dsiAccess(i: idxType...rank) ref {
   return dsiAccess(i);
+}
 
 iter GPUUnifiedArr.these() ref {
   foreach i in dom do
@@ -1184,8 +1186,9 @@ override proc GPUUnifiedArr.dsiStaticFastFollowCheck(type leadType) param {
   }
 }
 
-proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: [])
+proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: []) {
   return this.dsiDynamicFastFollowCheck(lead.domain);
+}
 
 proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: domain) {
   // TODO: Should this return true for domains with the same shape?
@@ -1193,9 +1196,10 @@ proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: domain) {
 }
 
 iter GPUUnifiedArr.these(param tag: iterKind, followThis, param fast: bool = false) ref where tag == iterKind.follower {
-  proc anyStridable(rangeTuple, param i: int = 0) param
+  proc anyStridable(rangeTuple, param i: int = 0) param {
       return if i == rangeTuple.size-1 then rangeTuple(i).stridable
              else rangeTuple(i).stridable || anyStridable(rangeTuple, i+1);
+  }
 
   if chpl__testParFlag {
     if fast then
@@ -1360,7 +1364,7 @@ proc GPUUnified.init(other: GPUUnified, privateData,
   this.sparseLayoutType = sparseLayoutType;
 }
 
-override proc GPUUnified.dsiSupportsPrivatization() param return true;
+override proc GPUUnified.dsiSupportsPrivatization() param { return true; }
 
 proc GPUUnified.dsiGetPrivatizeData() {
   return (boundingBox.dims(), targetLocDom.dims(),
@@ -1371,7 +1375,7 @@ proc GPUUnified.dsiPrivatize(privatizeData) {
   return new unmanaged GPUUnified(_to_unmanaged(this), privatizeData);
 }
 
-proc GPUUnified.dsiGetReprivatizeData() return boundingBox.dims();
+proc GPUUnified.dsiGetReprivatizeData() { return boundingBox.dims(); }
 
 proc GPUUnified.dsiReprivatize(other, reprivatizeData) {
   boundingBox = {(...reprivatizeData)};
@@ -1400,7 +1404,7 @@ proc type GPUUnifiedDom.chpl__deserialize(data) {
            data);
 }
 
-override proc GPUUnifiedDom.dsiSupportsPrivatization() param return true;
+override proc GPUUnifiedDom.dsiSupportsPrivatization() param { return true; }
 
 record GPUUnifiedDomPrvData {
   var distpid;
@@ -1426,7 +1430,7 @@ proc GPUUnifiedDom.dsiPrivatize(privatizeData) {
   return c;
 }
 
-proc GPUUnifiedDom.dsiGetReprivatizeData() return whole.dims();
+proc GPUUnifiedDom.dsiGetReprivatizeData() { return whole.dims(); }
 
 proc GPUUnifiedDom.dsiReprivatize(other, reprivatizeData) {
   locDoms = other.locDoms;
@@ -1448,7 +1452,7 @@ proc type GPUUnifiedArr.chpl__deserialize(data) {
            data);
 }
 
-override proc GPUUnifiedArr.dsiSupportsPrivatization() param return true;
+override proc GPUUnifiedArr.dsiSupportsPrivatization() param { return true; }
 
 record GPUUnifiedArrPrvData {
   var dompid;
@@ -1501,8 +1505,8 @@ proc GPUUnified.chpl__locToLocIdx(loc: locale) {
 
 // GPUUnified subdomains are continuous
 
-proc GPUUnifiedArr.dsiHasSingleLocalSubdomain() param return !allowDuplicateTargetLocales;
-proc GPUUnifiedDom.dsiHasSingleLocalSubdomain() param return !allowDuplicateTargetLocales;
+proc GPUUnifiedArr.dsiHasSingleLocalSubdomain() param { return !allowDuplicateTargetLocales; }
+proc GPUUnifiedDom.dsiHasSingleLocalSubdomain() param { return !allowDuplicateTargetLocales; }
 
 // returns the current locale's subdomain
 
@@ -1754,7 +1758,7 @@ where !disableGPUUnifiedDistBulkTransfer {
   return true;
 }
 
-override proc GPUUnifiedArr.doiCanBulkTransferRankChange() param return true;
+override proc GPUUnifiedArr.doiCanBulkTransferRankChange() param { return true; }
 
 config param debugGPUUnifiedScan = false;
 

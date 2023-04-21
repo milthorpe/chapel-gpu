@@ -49,7 +49,7 @@ module GPUAPI {
     extern proc Free(devPtr: c_void_ptr);
 
     pragma "no doc"
-    inline operator c_void_ptr.+(a: c_void_ptr, b: uint(64)) return __primitive("+", a, b);
+    inline operator c_void_ptr.+(a: c_void_ptr, b: uint(64)) { return __primitive("+", a, b); }
 
     class GPUArray {
       var devPtr: c_void_ptr;
