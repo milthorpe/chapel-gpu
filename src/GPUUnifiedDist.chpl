@@ -435,7 +435,8 @@ class LocGPUUnifiedArr {
     this.stridable = stridable;
     this.locDom = locDom;
     umemPtr = nil;
-    MallocManaged(umemPtr, locDom.myBlock.size * c_sizeof(eltType)); // TODO initElts
+    if locDom.myBlock.size > 0 then
+      MallocManaged(umemPtr, locDom.myBlock.size * c_sizeof(eltType)); // TODO initElts
     
     if (debugGPUUnifiedDist) {
       writeln("LocGPUUnifiedArray.init locDom.myBlock ", locDom.myBlock);
