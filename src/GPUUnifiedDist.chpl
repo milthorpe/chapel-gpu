@@ -435,14 +435,13 @@ class LocGPUUnifiedArr {
     this.stridable = stridable;
     this.locDom = locDom;
     umemPtr = nil;
-    if locDom.myBlock.size > 0 then
+    if locDom.myBlock.size > 0 {
       MallocManaged(umemPtr, locDom.myBlock.size * c_sizeof(eltType)); // TODO initElts
-    
-    if (debugGPUUnifiedDist) {
-      writeln("LocGPUUnifiedArray.init locDom.myBlock ", locDom.myBlock);
-      writeln("malloc'ed managed: ", umemPtr, " sizeInBytes: ", locDom.myBlock.size*c_sizeof(eltType));
+      if (debugGPUUnifiedDist) {
+        writeln("LocGPUUnifiedArray.init locDom.myBlock ", locDom.myBlock);
+        writeln("malloc'ed managed: ", umemPtr, " sizeInBytes: ", locDom.myBlock.size*c_sizeof(eltType));
+      }
     }
-    //this.myElems = this.locDom.myBlock.buildArray(eltType, initElts=initElts);
   }
 
   // guard against dynamic dispatch resolution trying to resolve
