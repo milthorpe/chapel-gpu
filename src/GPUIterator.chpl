@@ -22,10 +22,12 @@ module GPUIterator {
     use GPUUnifiedDist;
 
     config param debugGPUIterator = false;
+    config param oneDevicePerLocale = false;
 
     // if true, don't use GetDeviceCount/SetDeivce
     config param disableMultiGPUs = false;
     config const nGPUs = if (disableMultiGPUs) then 1 else getNumDevices();
+    const devices = if oneDevicePerLocale then [here.id: int(32)] else [deviceId in 0..#nGPUs] deviceId:int(32);
 
     proc getNumDevices() where disableMultiGPUs == false {
       var count: int(32);
@@ -78,7 +80,7 @@ module GPUIterator {
             GPUWrapper(myIters.translate(-r.low).first, myIters.translate(-r.low).last, GPUrange.size);
           }
           otherwise {
-            coforall tid in 0..#nGPUs {
+            coforall tid in devices {
               const myIters = computeChunk(GPUrange, tid, nGPUs);
               if (debugGPUIterator) then
                 writeln("[DEBUG GPUITERATOR] GPU", tid, " portion", ":", myIters, " CPU portion is ZERO");
@@ -121,7 +123,7 @@ module GPUIterator {
                 GPUWrapper(myIters.translate(-r.low).first, myIters.translate(-r.low).last, GPUrange.size);
               }
               otherwise {
-                coforall tid in 0..#nGPUs {
+                coforall tid in devices {
                   const myIters = computeChunk(GPUrange, tid, nGPUs);
                   if (debugGPUIterator) then
                     writeln("[DEBUG GPUITERATOR] GPU", tid, " portion", ":", myIters);
@@ -155,7 +157,7 @@ module GPUIterator {
             GPUWrapper(myIters.translate(-r.low).first, myIters.translate(-r.low).last, myIters.size);
           }
           otherwise {
-            coforall tid in 0..#nGPUs {
+            coforall tid in devices {
               const myIters = computeChunk(GPUrange, tid, nGPUs);
               if (debugGPUIterator) then
                 writeln("[DEBUG GPUITERATOR] GPU", tid, " portion", ":", myIters, " CPU portion is ZERO");
@@ -200,7 +202,7 @@ module GPUIterator {
                 GPUWrapper(myIters.translate(-r.low).first, myIters.translate(-r.low).last, GPUrange.size);
               }
               otherwise {
-                coforall tid in 0..#nGPUs {
+                coforall tid in devices {
                   const myIters = computeChunk(GPUrange, tid, nGPUs);
                   if (debugGPUIterator) then
                     writeln("[DEBUG GPUITERATOR] GPU", tid, " portion", ":", myIters);
