@@ -26,7 +26,7 @@ module GPUIterator {
 
     // if true, don't use GetDeviceCount/SetDeivce
     config param disableMultiGPUs = false;
-    config const nGPUs = if (disableMultiGPUs) then 1 else getNumDevices();
+    config const nGPUs = if (disableMultiGPUs || oneDevicePerLocale) then 1 else getNumDevices();
     const devices = if oneDevicePerLocale then [here.id: int(32)] else [deviceId in 0..#nGPUs] deviceId:int(32);
 
     proc getNumDevices() where disableMultiGPUs == false {
@@ -49,7 +49,7 @@ module GPUIterator {
     }
 
     inline proc computeChunk(r: range, myChunk, numChunks)
-      where r.stridable == false {
+      where r.strides==strideKind.one {
 
       const numElems = r.size;
       const elemsPerChunk = numElems/numChunks;

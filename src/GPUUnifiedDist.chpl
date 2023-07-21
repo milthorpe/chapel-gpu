@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 Hewlett Packard Enterprise Development LP
+ * Copyright 2020-2023 Hewlett Packard Enterprise Development LP
  * Copyright 2004-2019 Cray Inc.
  * Other additional copyright holders may be indicated within.
  *
@@ -46,7 +46,7 @@ private use ChapelLocks;
 private use ChapelDebugPrint;
 private use LayoutCS;
 
-use CTypes;
+private use CTypes;
 
 public use SparseBlockDist;
 //
@@ -258,10 +258,10 @@ domain or array.
 
     use GPUUnifiedDist;
 
-    var GPUUnifiedDom1 = newGPUUnifiedDom({1..5, 1..5});
-    var GPUUnifiedArr1 = newGPUUnifiedArr({1..5, 1..5}, real);
-    var GPUUnifiedDom2 = newGPUUnifiedDom(1..5, 1..5);
-    var GPUUnifiedArr2 = newGPUUnifiedArr(1..5, 1..5, real);
+    var GPUUnifiedDom1 = GPUUnified.createDomain({1..5, 1..5});
+    var GPUUnifiedArr1 = GPUUnified.createArray({1..5, 1..5}, real);
+    var GPUUnifiedDom2 = GPUUnified.createDomain(1..5, 1..5);
+    var GPUUnifiedArr2 = GPUUnified.createArray(1..5, 1..5, real);
 
 **Data-Parallel Iteration**
 
@@ -344,7 +344,7 @@ class GPUUnified : BaseDist {
 class LocGPUUnified {
   param rank: int;
   type idxType;
-  const myChunk: domain(rank, idxType);
+  var myChunk: domain(rank, idxType);
 }
 
 //
@@ -352,7 +352,7 @@ class LocGPUUnified {
 //
 // rank:      generic domain rank
 // idxType:   generic domain index type
-// stridable: generic domain stridable parameter
+// strides:   generic domain stridable parameter
 // dist:      reference to distribution class
 // locDoms:   a non-distributed array of local domain classes
 // whole:     a non-distributed domain that defines the domain's indices
@@ -360,8 +360,8 @@ class LocGPUUnified {
 class GPUUnifiedDom: BaseRectangularDom {
   type sparseLayoutType;
   const dist: unmanaged GPUUnified(rank, idxType, sparseLayoutType);
-  var locDoms: [dist.targetLocDom] unmanaged LocGPUUnifiedDom(rank, idxType, stridable);
-  var whole: domain(rank=rank, idxType=idxType, stridable=stridable);
+  var locDoms: [dist.targetLocDom] unmanaged LocGPUUnifiedDom(rank, idxType, strides);
+  var whole: domain(rank, idxType, strides);
 }
 
 //
@@ -369,14 +369,14 @@ class GPUUnifiedDom: BaseRectangularDom {
 //
 // rank: generic domain rank
 // idxType: generic domain index type
-// stridable: generic domain stridable parameter
+// strides: generic domain stridable parameter
 // myBlock: a non-distributed domain that defines the local indices
 //
 class LocGPUUnifiedDom {
   param rank: int;
   type idxType;
-  param stridable: bool;
-  var myBlock: domain(rank, idxType, stridable);
+  param strides: strideKind;
+  var myBlock: domain(rank, idxType, strides);
 }
 
 //
@@ -385,7 +385,7 @@ class LocGPUUnifiedDom {
 // eltType: generic array element type
 // rank: generic array rank
 // idxType: generic array index type
-// stridable: generic array stridable parameter
+// strides: generic array stridable parameter
 // dom: reference to domain class
 // locArr: a non-distributed array of local array classes
 // myLocArr: optimized reference to here's local array class (or nil)
@@ -393,10 +393,11 @@ class LocGPUUnifiedDom {
 class GPUUnifiedArr: BaseRectangularArr {
   type sparseLayoutType;
   var doRADOpt: bool = defaultDoRADOpt;
-  var dom: unmanaged GPUUnifiedDom(rank, idxType, stridable, sparseLayoutType);
-  var locArr: [dom.dist.targetLocDom] unmanaged LocGPUUnifiedArr(eltType, rank, idxType, stridable);
+  var dom: unmanaged GPUUnifiedDom(rank, idxType, strides, sparseLayoutType);
+  var locArr: [dom.dist.targetLocDom] unmanaged LocGPUUnifiedArr(eltType,
+                                                  rank, idxType, strides);
   pragma "local field"
-  var myLocArr: unmanaged LocGPUUnifiedArr(eltType, rank, idxType, stridable)?;
+  var myLocArr: unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides)?;
   const SENTINEL = max(rank*int);
 }
 
@@ -406,7 +407,7 @@ class GPUUnifiedArr: BaseRectangularArr {
 // eltType: generic array element type
 // rank: generic array rank
 // idxType: generic array index type
-// stridable: generic array stridable parameter
+// strides: generic array stridable parameter
 // locDom: reference to local domain class
 // myElems: a non-distributed array of local elements
 //
@@ -414,10 +415,10 @@ class LocGPUUnifiedArr {
   type eltType;
   param rank: int;
   type idxType;
-  param stridable: bool;
-  const locDom: unmanaged LocGPUUnifiedDom(rank, idxType, stridable);
+  param strides: strideKind;
+  const locDom: unmanaged LocGPUUnifiedDom(rank, idxType, strides);
   var umemPtr: c_ptr(eltType);
-  var locRAD: unmanaged LocRADCache(eltType, rank, idxType, stridable)?; // non-nil if doRADOpt=true
+  var locRAD: unmanaged LocRADCache(eltType, rank, idxType, strides)?; // non-nil if doRADOpt=true
   pragma "local field" pragma "unsafe"
   // may be initialized separately
   var myElems = makeArrayFromPtr(umemPtr, locDom.myBlock);//: [locDom.myBlock] eltType;
@@ -426,13 +427,13 @@ class LocGPUUnifiedArr {
   proc init(type eltType,
             param rank: int,
             type idxType,
-            param stridable: bool,
-            const locDom: unmanaged LocGPUUnifiedDom(rank, idxType, stridable),
+            param strides: strideKind,
+            const locDom: unmanaged LocGPUUnifiedDom(rank, idxType, strides),
             param initElts: bool) {
     this.eltType = eltType;
     this.rank = rank;
     this.idxType = idxType;
-    this.stridable = stridable;
+    this.strides = strides;
     this.locDom = locDom;
     umemPtr = nil;
     if locDom.myBlock.size > 0 {
@@ -485,7 +486,7 @@ proc GPUUnified.init(boundingBox: domain,
   if boundingBox.sizeAs(uint) == 0 then
     halt("GPUUnified() requires a non-empty boundingBox");
 
-  this.boundingBox = boundingBox : domain(rank, idxType, stridable = false);
+  this.boundingBox = boundingBox : domain(rank, idxType);
 
   if !allowDuplicateTargetLocales {
     var checkArr: [LocaleSpace] bool;
@@ -539,27 +540,29 @@ proc GPUUnified.init(boundingBox: domain,
   }
 }
 
+@unstable(category="experimental", reason="'GPUUnified.redistribute()' is currently unstable due to lack of design review and is being made available as a prototype")
+proc GPUUnified.redistribute(const in newBbox) {
+  const newBboxDims = newBbox.dims();
+  const pid = this.pid;
+  coforall (locid, loc, locdist) in zip(targetLocDom, targetLocales, locDist) {
+    on loc {
+      const that = if _privatization then chpl_getPrivatizedCopy(this.type, pid) else this;
+      that.boundingBox = newBbox;
+
+      var inds = chpl__computeBlock(chpl__tuplify(locid), targetLocDom, newBbox, newBboxDims);
+      locdist.myChunk = {(...inds)};
+    }
+  }
+}
+
+
 proc GPUUnified.dsiAssign(other: this.type) {
-
-  coforall (loc, locDistElt) in zip(targetLocales, locDist) {
-    on loc {
-      delete locDistElt;
-    }
+  if (this.targetLocDom != other.targetLocDom ||
+      || reduce (this.targetLocales != other.targetLocales)) {
+    halt("GPUUnified distribution assignments currently require the target locale arrays to match");
   }
-  boundingBox = other.boundingBox;
-  targetLocDom = other.targetLocDom;
-  targetLocales = other.targetLocales;
-  dataParTasksPerLocale = other.dataParTasksPerLocale;
-  dataParIgnoreRunningTasks = other.dataParIgnoreRunningTasks;
-  dataParMinGranularity = other.dataParMinGranularity;
 
-  coforall (locid, loc, locDistElt)
-           in zip(targetLocDom, targetLocales, locDist) {
-    on loc {
-      locDistElt = new unmanaged LocGPUUnified(rank, idxType, locid, boundingBox,
-                                          targetLocDom);
-    }
-  }
+  this.redistribute(other.boundingBox);
 }
 
 //
@@ -607,28 +610,29 @@ override proc GPUUnified.dsiDisplayRepresentation() {
 }
 
 override proc GPUUnified.dsiNewRectangularDom(param rank: int, type idxType,
-                                         param stridable: bool, inds) {
+                                         param strides: strideKind, inds) {
   if idxType != this.idxType then
     compilerError("GPUUnified domain index type does not match distribution's");
   if rank != this.rank then
     compilerError("GPUUnified domain rank does not match distribution's");
 
-  const whole = createWholeDomainForInds(rank, idxType, stridable, inds);
+  const whole = createWholeDomainForInds(rank, idxType, strides, inds);
 
-  const dummyLBD = new unmanaged LocGPUUnifiedDom(rank, idxType, stridable);
+  const dummyLBD = new unmanaged LocGPUUnifiedDom(rank, idxType, strides);
   var locDomsTemp: [this.targetLocDom]
-                  unmanaged LocGPUUnifiedDom(rank, idxType, stridable) = dummyLBD;
+                  unmanaged LocGPUUnifiedDom(rank, idxType, strides) = dummyLBD;
   coforall (localeIdx, loc, locDomsTempElt)
            in zip(this.targetLocDom, this.targetLocales, locDomsTemp) {
     on loc {
-      locDomsTempElt = new unmanaged LocGPUUnifiedDom(rank, idxType, stridable,
-                                                 this.getChunk(whole, localeIdx));
+      locDomsTempElt = new unmanaged LocGPUUnifiedDom(rank, idxType, strides,
+        // todo: can/should we get a more specific return type out of getChunk?
+        this.getChunk(whole, localeIdx): domain(rank, idxType, strides));
     }
   }
   delete dummyLBD;
 
-  var dom = new unmanaged GPUUnifiedDom(rank, idxType, stridable, sparseLayoutType,
-                                   this: unmanaged, locDomsTemp, whole);
+  var dom = new unmanaged GPUUnifiedDom(rank, idxType, strides, sparseLayoutType,
+                                   _to_unmanaged(this), locDomsTemp, whole);
 
   if debugGPUUnifiedDist {
     writeln("Creating new GPUUnified domain:");
@@ -641,7 +645,7 @@ override proc GPUUnified.dsiNewSparseDom(param rank: int, type idxType,
                                     dom: domain) {
   var ret =  new unmanaged SparseBlockDom(rank=rank, idxType=idxType,
                             sparseLayoutType=sparseLayoutType,
-                            stridable=dom.stridable,
+                            strides=dom.strides,
                             dist=_to_unmanaged(this), whole=dom._value.whole,
                             parentDom=dom);
   ret.setup();
@@ -683,6 +687,12 @@ proc GPUUnified.getChunk(inds, locid) {
   //
   // TODO: Does using David's detupling trick work here?
   //
+  // Vass 2023-03: the chunk should really be computed as:
+  //   const chunk = inds[locDist(locid).myChunk];
+  // because we are looking for a subset of 'inds'.
+  // I did not make this change because it would slightly bump comm counts in:
+  //   distributions/robust/arithmetic/performance/multilocale/assignReindex
+  //
   const chunk = locDist(locid).myChunk((...inds.getIndices()));
   if sanityCheckDistribution then
     if chunk.sizeAs(int) > 0 {
@@ -716,8 +726,8 @@ proc GPUUnified.targetLocsIdx(ind: rank*idxType) {
 // TODO: This will not trigger the bounded-coforall optimization
 iter GPUUnified.activeTargetLocales(const space : domain = boundingBox) {
   const locSpace = {(...space.dims())}; // make a local domain in case 'space' is distributed
-  const low = chpl__tuplify(targetLocsIdx(locSpace.first));
-  const high = chpl__tuplify(targetLocsIdx(locSpace.last));
+  const low  = chpl__tuplify(targetLocsIdx(locSpace.low));
+  const high = chpl__tuplify(targetLocsIdx(locSpace.high));
   var dims : rank*range(low(0).type);
   for param i in 0..rank-1 {
     dims(i) = low(i)..high(i);
@@ -741,6 +751,24 @@ iter GPUUnified.activeTargetLocales(const space : domain = boundingBox) {
     if locSpace[(...chunk)].sizeAs(int) > 0 then
       yield i;
   }
+}
+
+proc type GPUUnified.createDomain(dom: domain) {
+  return dom dmapped GPUUnified(dom);
+}
+
+proc type GPUUnified.createDomain(rng: range...) {
+  return createDomain({(...rng)});
+}
+
+proc type GPUUnified.createArray(dom: domain, type eltType) {
+  var D = createDomain(dom);
+  var A: [D] eltType;
+  return A;
+}
+
+proc type GPUUnified.createArray(rng: range..., type eltType) {
+  return createArray({(...rng)}, eltType);
 }
 
 proc chpl__computeBlock(locid, targetLocBox:domain, boundingBox:domain,
@@ -788,7 +816,7 @@ override proc GPUUnifiedDom.dsiDisplayRepresentation() {
 }
 
 // stopgap to avoid accessing locDoms field (and returning an array)
-proc GPUUnifiedDom.getLocDom(localeIdx) { return locDoms(localeIdx); }
+proc GPUUnifiedDom.getLocDom(localeIdx) do return locDoms(localeIdx);
 
 //
 // Given a tuple of scalars of type t or range(t) match the shape but
@@ -844,15 +872,12 @@ iter GPUUnifiedDom.these(param tag: iterKind) where tag == iterKind.leader {
       else ignoreRunning;
     // Use the internal function for untranslate to avoid having to do
     // extra work to negate the offset
-    type strType = chpl__signedType(idxType);
     const tmpBlock = locDom.myBlock.chpl__unTranslate(wholeLow);
     var locOffset: rank*idxType;
     for param i in 0..tmpBlock.rank-1 {
-      const stride = tmpBlock.dim(i).stride;
-      if stride < 0 && strType != idxType then
-        halt("negative stride not supported with unsigned idxType");
-        // (since locOffset is unsigned in that case)
-      locOffset(i) = tmpBlock.dim(i).first / stride:idxType;
+      const dim = tmpBlock.dim(i);
+      const aStr = if dim.hasPositiveStride() then dim.stride else -dim.stride;
+      locOffset(i) = dim.low / aStr:idxType;
     }
     // Forward to defaultRectangular
     for followThis in tmpBlock.these(iterKind.leader, maxTasks,
@@ -873,25 +898,26 @@ iter GPUUnifiedDom.these(param tag: iterKind) where tag == iterKind.leader {
 // natural composition and might help with my fears about how
 // stencil communication will be done on a per-locale basis.
 //
+// TODO: rewrite the index transformations in this and similar
+// leaders+followers to use un/densify, which were created for that.
+// If un/densify add overhead, need to eliminate it.
+//
 // TODO: Can we just re-use the DefaultRectangularDom follower here?
 //
 iter GPUUnifiedDom.these(param tag: iterKind, followThis) where tag == iterKind.follower {
-  proc anyStridable(rangeTuple, param i: int = 0) param {
-      return if i == rangeTuple.size-1 then rangeTuple(i).stridable
-             else rangeTuple(i).stridable || anyStridable(rangeTuple, i+1);
-  }
-
   if chpl__testParFlag then
     chpl__testParWriteln("GPUUnified domain follower invoked on ", followThis);
 
-  var t: rank*range(idxType, stridable=stridable||anyStridable(followThis));
-  type strType = chpl__signedType(idxType);
+  var t: rank*range(idxType, strides = chpl_strideProduct(whole.strides,
+                                              chpl_strideUnion(followThis)));
   for param i in 0..rank-1 {
-    var stride = whole.dim(i).stride: strType;
-    // not checking here whether the new low and high fit into idxType
-    var low = (stride * followThis(i).lowBound:strType):idxType;
-    var high = (stride * followThis(i).highBound:strType):idxType;
-    t(i) = ((low..high by stride:strType) + whole.dim(i).low by followThis(i).stride:strType).safeCast(t(i).type);
+    const wholeDim  = whole.dim(i);
+    const followDim = followThis(i);
+    var low  = wholeDim.orderToIndex(followDim.low);
+    var high = wholeDim.orderToIndex(followDim.high);
+    if wholeDim.hasNegativeStride() then low <=> high;
+    t(i) = ( low..high by (wholeDim.stride*followDim.stride)
+           ).safeCast(t(i).type);
   }
   for i in {(...t)} {
     yield i;
@@ -904,19 +930,19 @@ iter GPUUnifiedDom.these(param tag: iterKind, followThis) where tag == iterKind.
 proc GPUUnifiedDom.dsiBuildArray(type eltType, param initElts:bool) {
   const dom = this;
   const creationLocale = here.id;
-  const dummyLBD = new unmanaged LocGPUUnifiedDom(rank, idxType, stridable);
+  const dummyLBD = new unmanaged LocGPUUnifiedDom(rank, idxType, strides);
   const dummyLBA = new unmanaged LocGPUUnifiedArr(eltType, rank, idxType,
-                                             stridable, dummyLBD, false);
+                                             strides, dummyLBD, false);
   var locArrTemp: [dom.dist.targetLocDom]
-        unmanaged LocGPUUnifiedArr(eltType, rank, idxType, stridable) = dummyLBA;
-  var myLocArrTemp: unmanaged LocGPUUnifiedArr(eltType, rank, idxType, stridable)?;
+        unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides) = dummyLBA;
+  var myLocArrTemp: unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides)?;
 
   // formerly in GPUUnifiedArr.setup()
   coforall (loc, locDomsElt, locArrTempElt)
            in zip(dom.dist.targetLocales, dom.locDoms, locArrTemp)
            with (ref myLocArrTemp) {
     on loc {
-      const LBA = new unmanaged LocGPUUnifiedArr(eltType, rank, idxType, stridable,
+      const LBA = new unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides,
                                             locDomsElt,
                                             initElts=initElts);
       locArrTempElt = LBA;
@@ -927,7 +953,7 @@ proc GPUUnifiedDom.dsiBuildArray(type eltType, param initElts:bool) {
   delete dummyLBA, dummyLBD;
 
   var arr = new unmanaged GPUUnifiedArr(eltType=eltType, rank=rank, idxType=idxType,
-       stridable=stridable, sparseLayoutType=sparseLayoutType,
+       strides=strides, sparseLayoutType=sparseLayoutType,
        dom=_to_unmanaged(dom), locArr=locArrTemp, myLocArr=myLocArrTemp);
 
   // formerly in GPUUnifiedArr.setup()
@@ -940,25 +966,25 @@ proc GPUUnifiedDom.dsiBuildArray(type eltType, param initElts:bool) {
 proc GPUUnifiedDom.parSafe param {
   compilerError("this domain type does not support 'parSafe'");
 }
-override proc GPUUnifiedDom.dsiLow           { return whole.lowBound; }
-override proc GPUUnifiedDom.dsiHigh          { return whole.highBound; }
-override proc GPUUnifiedDom.dsiAlignedLow    { return whole.low; }
-override proc GPUUnifiedDom.dsiAlignedHigh   { return whole.high; }
-override proc GPUUnifiedDom.dsiFirst         { return whole.first; }
-override proc GPUUnifiedDom.dsiLast          { return whole.last; }
-override proc GPUUnifiedDom.dsiStride        { return whole.stride; }
-override proc GPUUnifiedDom.dsiAlignment     { return whole.alignment; }
-proc GPUUnifiedDom.dsiNumIndices    { return whole.sizeAs(uint); }
-proc GPUUnifiedDom.dsiDim(d)        { return whole.dim(d); }
-proc GPUUnifiedDom.dsiDim(param d)  { return whole.dim(d); }
-proc GPUUnifiedDom.dsiDims()        { return whole.dims(); }
-proc GPUUnifiedDom.dsiGetIndices()  { return whole.getIndices(); }
-proc GPUUnifiedDom.dsiMember(i)     { return whole.contains(i); }
-proc GPUUnifiedDom.doiToString()    { return whole:string; }
+override proc GPUUnifiedDom.dsiLow do           return whole.lowBound;
+override proc GPUUnifiedDom.dsiHigh do          return whole.highBound;
+override proc GPUUnifiedDom.dsiAlignedLow do    return whole.low;
+override proc GPUUnifiedDom.dsiAlignedHigh do   return whole.high;
+override proc GPUUnifiedDom.dsiFirst do         return whole.first;
+override proc GPUUnifiedDom.dsiLast do          return whole.last;
+override proc GPUUnifiedDom.dsiStride do        return whole.stride;
+override proc GPUUnifiedDom.dsiAlignment do     return whole.alignment;
+proc GPUUnifiedDom.dsiNumIndices do    return whole.sizeAs(uint);
+proc GPUUnifiedDom.dsiDim(d) do        return whole.dim(d);
+proc GPUUnifiedDom.dsiDim(param d) do  return whole.dim(d);
+proc GPUUnifiedDom.dsiDims() do        return whole.dims();
+proc GPUUnifiedDom.dsiGetIndices() do  return whole.getIndices();
+proc GPUUnifiedDom.dsiMember(i) do     return whole.contains(i);
+proc GPUUnifiedDom.doiToString() do    return whole:string;
 proc GPUUnifiedDom.dsiSerialWrite(x) { x.write(whole); }
-proc GPUUnifiedDom.dsiLocalSlice(param stridable, ranges) { return whole((...ranges)); }
-override proc GPUUnifiedDom.dsiIndexOrder(i)              { return whole.indexOrder(i); }
-override proc GPUUnifiedDom.dsiMyDist()                   { return dist; }
+proc GPUUnifiedDom.dsiLocalSlice(param strides, ranges) do return whole((...ranges));
+override proc GPUUnifiedDom.dsiIndexOrder(i) do              return whole.indexOrder(i);
+override proc GPUUnifiedDom.dsiMyDist() do                   return dist;
 
 //
 // INTERFACE NOTES: Could we make dsiSetIndices() for a rectangular
@@ -1017,7 +1043,7 @@ override proc GPUUnifiedDom.dsiDestroyDom() {
 //
 // Added as a performance stopgap to avoid returning a domain
 //
-proc LocGPUUnifiedDom.contains(i) { return myBlock.contains(i); }
+proc LocGPUUnifiedDom.contains(i) do return myBlock.contains(i);
 
 
 ////// GPUUnifiedArr and LocGPUUnifiedArr methods /////////////////////////////////////
@@ -1025,12 +1051,12 @@ proc LocGPUUnifiedDom.contains(i) { return myBlock.contains(i); }
 override proc GPUUnifiedArr.dsiDisplayRepresentation() {
   for tli in dom.dist.targetLocDom {
     writeln("locArr[", tli, "].myElems = ", for e in locArr[tli].myElems do e);
-    if doRADOpt then
+    if doRADOpt && locArr[tli].locRAD != nil then
       writeln("locArr[", tli, "].locRAD = ", locArr[tli].locRAD!.RAD);
   }
 }
 
-override proc GPUUnifiedArr.dsiGetBaseDom() { return dom; }
+override proc GPUUnifiedArr.dsiGetBaseDom() do return dom;
 
 override proc GPUUnifiedArr.dsiIteratorYieldsLocalElements() param {
   return true;
@@ -1053,7 +1079,8 @@ proc GPUUnifiedArr.setupRADOpt() {
         myLocArr.locRAD = nil;
       }
       if disableGPUUnifiedLazyRAD {
-        myLocArr.locRAD = new unmanaged LocRADCache(eltType, rank, idxType, stridable, dom.dist.targetLocDom);
+        myLocArr.locRAD = new unmanaged LocRADCache(eltType, rank, idxType,
+                                             strides, dom.dist.targetLocDom);
         for l in dom.dist.targetLocDom {
           if l != localeIdx {
             myLocArr.locRAD!.RAD(l) = locArr(l).myElems._value.dsiGetRAD();
@@ -1127,7 +1154,8 @@ proc GPUUnifiedArr.nonLocalAccess(i: rank*idxType) ref {
         if myLocArr.locRAD == nil {
           myLocArr.locRADLock.lock();
           if myLocArr.locRAD == nil {
-            var tempLocRAD = new unmanaged LocRADCache(eltType, rank, idxType, stridable, dom.dist.targetLocDom);
+            var tempLocRAD = new unmanaged LocRADCache(eltType, rank, idxType,
+                                               strides, dom.dist.targetLocDom);
             tempLocRAD.RAD.blk = SENTINEL;
             myLocArr.locRAD = tempLocRAD;
           }
@@ -1154,9 +1182,8 @@ proc GPUUnifiedArr.nonLocalAccess(i: rank*idxType) ref {
   return locArr(dom.dist.targetLocsIdx(i))(i);
 }
 
-proc GPUUnifiedArr.dsiAccess(i: idxType...rank) ref {
+proc GPUUnifiedArr.dsiAccess(i: idxType...rank) ref do
   return dsiAccess(i);
-}
 
 iter GPUUnifiedArr.these() ref {
   foreach i in dom do
@@ -1186,9 +1213,8 @@ override proc GPUUnifiedArr.dsiStaticFastFollowCheck(type leadType) param {
   }
 }
 
-proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: []) {
+proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: []) do
   return this.dsiDynamicFastFollowCheck(lead.domain);
-}
 
 proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: domain) {
   // TODO: Should this return true for domains with the same shape?
@@ -1196,11 +1222,6 @@ proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: domain) {
 }
 
 iter GPUUnifiedArr.these(param tag: iterKind, followThis, param fast: bool = false) ref where tag == iterKind.follower {
-  proc anyStridable(rangeTuple, param i: int = 0) param {
-      return if i == rangeTuple.size-1 then rangeTuple(i).stridable
-             else rangeTuple(i).stridable || anyStridable(rangeTuple, i+1);
-  }
-
   if chpl__testParFlag {
     if fast then
       chpl__testParWriteln("GPUUnified array fast follower invoked on ", followThis);
@@ -1211,11 +1232,12 @@ iter GPUUnifiedArr.these(param tag: iterKind, followThis, param fast: bool = fal
   if testFastFollowerOptimization then
     writeln((if fast then "fast" else "regular") + " follower invoked for GPUUnified array");
 
-  var myFollowThis: rank*range(idxType=idxType, stridable=stridable || anyStridable(followThis));
+  var myFollowThis: rank*range(idxType=idxType, strides=chpl_strideProduct(
+                                     strides, chpl_strideUnion(followThis)));
   var lowIdx: rank*idxType;
 
   for param i in 0..rank-1 {
-    var stride = dom.whole.dim(i).stride;
+    const stride = dom.whole.dim(i).stride;
     // NOTE: Not bothering to check to see if these can fit into idxType
     var low = followThis(i).lowBound * abs(stride):idxType;
     var high = followThis(i).highBound * abs(stride):idxType;
@@ -1242,7 +1264,8 @@ iter GPUUnifiedArr.these(param tag: iterKind, followThis, param fast: bool = fal
 
     local {
       use CTypes; // Needed to cast from c_void_ptr in the next line
-      const narrowArrSection = __primitive("_wide_get_addr", arrSection):arrSection.type?;
+      const narrowArrSection =
+        __primitive("_wide_get_addr", arrSection):arrSection.type?;
       ref myElems = _to_nonnil(narrowArrSection).myElems;
       foreach i in myFollowThisDom do yield myElems[i];
     }
@@ -1308,7 +1331,7 @@ proc _extendTuple(type t, idx, args) {
   return tup;
 }
 
-override proc GPUUnifiedArr.dsiReallocate(bounds:rank*range(idxType,BoundedRangeType.bounded,stridable))
+override proc GPUUnifiedArr.dsiReallocate(bounds:rank*range(idxType,boundKind.both,strides))
 {
   //
   // For the default rectangular array, this function changes the data
@@ -1364,7 +1387,7 @@ proc GPUUnified.init(other: GPUUnified, privateData,
   this.sparseLayoutType = sparseLayoutType;
 }
 
-override proc GPUUnified.dsiSupportsPrivatization() param { return true; }
+override proc GPUUnified.dsiSupportsPrivatization() param do return true;
 
 proc GPUUnified.dsiGetPrivatizeData() {
   return (boundingBox.dims(), targetLocDom.dims(),
@@ -1375,7 +1398,7 @@ proc GPUUnified.dsiPrivatize(privatizeData) {
   return new unmanaged GPUUnified(_to_unmanaged(this), privatizeData);
 }
 
-proc GPUUnified.dsiGetReprivatizeData() { return boundingBox.dims(); }
+proc GPUUnified.dsiGetReprivatizeData() do return boundingBox.dims();
 
 proc GPUUnified.dsiReprivatize(other, reprivatizeData) {
   boundingBox = {(...reprivatizeData)};
@@ -1399,12 +1422,12 @@ proc type GPUUnifiedDom.chpl__deserialize(data) {
   return chpl_getPrivatizedCopy(
            unmanaged GPUUnifiedDom(rank=this.rank,
                               idxType=this.idxType,
-                              stridable=this.stridable,
+                              strides=this.strides,
                               sparseLayoutType=this.sparseLayoutType),
            data);
 }
 
-override proc GPUUnifiedDom.dsiSupportsPrivatization() param { return true; }
+override proc GPUUnifiedDom.dsiSupportsPrivatization() param do return true;
 
 record GPUUnifiedDomPrvData {
   var distpid;
@@ -1420,17 +1443,17 @@ proc GPUUnifiedDom.dsiPrivatize(privatizeData) {
   var privdist = chpl_getPrivatizedCopy(dist.type, privatizeData.distpid);
 
   var locDomsTemp: [privdist.targetLocDom]
-                      unmanaged LocGPUUnifiedDom(rank, idxType, stridable)
+                      unmanaged LocGPUUnifiedDom(rank, idxType, strides)
     = privatizeData.locdoms;
 
   // in initializer we have to pass sparseLayoutType as it has no default value
-  const c = new unmanaged GPUUnifiedDom(rank, idxType, stridable,
+  const c = new unmanaged GPUUnifiedDom(rank, idxType, strides,
                                    privdist.sparseLayoutType, privdist,
                                    locDomsTemp, {(...privatizeData.dims)});
   return c;
 }
 
-proc GPUUnifiedDom.dsiGetReprivatizeData() { return whole.dims(); }
+proc GPUUnifiedDom.dsiGetReprivatizeData() do return whole.dims();
 
 proc GPUUnifiedDom.dsiReprivatize(other, reprivatizeData) {
   locDoms = other.locDoms;
@@ -1446,13 +1469,13 @@ proc type GPUUnifiedArr.chpl__deserialize(data) {
   return chpl_getPrivatizedCopy(
            unmanaged GPUUnifiedArr(rank=this.rank,
                               idxType=this.idxType,
-                              stridable=this.stridable,
+                              strides=this.strides,
                               eltType=this.eltType,
                               sparseLayoutType=this.sparseLayoutType),
            data);
 }
 
-override proc GPUUnifiedArr.dsiSupportsPrivatization() param { return true; }
+override proc GPUUnifiedArr.dsiSupportsPrivatization() param do return true;
 
 record GPUUnifiedArrPrvData {
   var dompid;
@@ -1467,16 +1490,16 @@ proc GPUUnifiedArr.dsiPrivatize(privatizeData) {
   var privdom = chpl_getPrivatizedCopy(dom.type, privatizeData.dompid);
 
   var locArrTemp: [privdom.dist.targetLocDom]
-                     unmanaged LocGPUUnifiedArr(eltType, rank, idxType, stridable)
+                     unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides)
     = privatizeData.locarr;
 
-  var myLocArrTemp: unmanaged LocGPUUnifiedArr(eltType, rank, idxType, stridable)?;
+  var myLocArrTemp: unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides)?;
   for localeIdx in privdom.dist.targetLocDom do
     if locArrTemp(localeIdx).locale.id == here.id then
       myLocArrTemp = locArrTemp(localeIdx);
 
   const c = new unmanaged GPUUnifiedArr(eltType=eltType, rank=rank, idxType=idxType,
-                      stridable=stridable, sparseLayoutType=sparseLayoutType,
+                      strides=strides, sparseLayoutType=sparseLayoutType,
                       dom=privdom, locArr=locArrTemp, myLocArr = myLocArrTemp);
   return c;
 }
@@ -1505,8 +1528,8 @@ proc GPUUnified.chpl__locToLocIdx(loc: locale) {
 
 // GPUUnified subdomains are continuous
 
-proc GPUUnifiedArr.dsiHasSingleLocalSubdomain() param { return !allowDuplicateTargetLocales; }
-proc GPUUnifiedDom.dsiHasSingleLocalSubdomain() param { return !allowDuplicateTargetLocales; }
+proc GPUUnifiedArr.dsiHasSingleLocalSubdomain() param do return !allowDuplicateTargetLocales;
+proc GPUUnifiedDom.dsiHasSingleLocalSubdomain() param do return !allowDuplicateTargetLocales;
 
 // returns the current locale's subdomain
 
@@ -1516,7 +1539,7 @@ proc GPUUnifiedArr.dsiLocalSubdomain(loc: locale) {
     if const myLocArrNN = myLocArr then
       return myLocArrNN.locDom.myBlock;
     // if not, we must not own anything
-    var d: domain(rank, idxType, stridable);
+    var d: domain(rank, idxType, strides);
     return d;
   } else {
     return dom.dsiLocalSubdomain(loc);
@@ -1525,10 +1548,17 @@ proc GPUUnifiedArr.dsiLocalSubdomain(loc: locale) {
 proc GPUUnifiedDom.dsiLocalSubdomain(loc: locale) {
   const (gotit, locid) = dist.chpl__locToLocIdx(loc);
   if (gotit) {
-    var inds = chpl__computeBlock(locid, dist.targetLocDom, dist.boundingBox, dist.boundingBox.dims());
-    return whole[(...inds)];
+    if loc == here {
+      // If we're doing the common case of just querying our own ownership,
+      // return the local, pre-computed value
+      return locDoms[locid].myBlock;
+    } else {
+      // Otherwise, compute it to avoid communication...
+      var inds = chpl__computeBlock(locid, dist.targetLocDom, dist.boundingBox, dist.boundingBox.dims());
+      return whole[(...inds)];
+    }
   } else {
-    var d: domain(rank, idxType, stridable);
+    var d: domain(rank, idxType, strides);
     return d;
   }
 }
@@ -1548,7 +1578,7 @@ proc GPUUnifiedDom.numRemoteElems(viewDom, rlo, rid) {
   return (bhi - (rlo - 1):idxType);
 }
 
-private proc canDoAnyToBlock(Dest, destDom, Src, srcDom) param : bool {
+private proc canDoAnyToGPUUnified(Dest, destDom, Src, srcDom) param : bool {
   if Src.doiCanBulkTransferRankChange() == false &&
      Dest.rank != Src.rank then return false;
 
@@ -1568,8 +1598,7 @@ proc GPUUnifiedArr.doiBulkTransferToKnown(srcDom, destClass:GPUUnifiedArr, destD
 where this.sparseLayoutType == unmanaged DefaultDist &&
       destClass.sparseLayoutType == unmanaged DefaultDist &&
       !disableGPUUnifiedDistBulkTransfer {
-  _doSimpleBlockTransfer(destClass, destDom, this, srcDom);
-  return true;
+  return _doSimpleGPUUnifiedTransfer(destClass, destDom, this, srcDom);
 }
 
 // this = GPUUnified
@@ -1577,8 +1606,7 @@ proc GPUUnifiedArr.doiBulkTransferFromKnown(destDom, srcClass:GPUUnifiedArr, src
 where this.sparseLayoutType == unmanaged DefaultDist &&
       srcClass.sparseLayoutType == unmanaged DefaultDist &&
       !disableGPUUnifiedDistBulkTransfer {
-  _doSimpleBlockTransfer(this, destDom, srcClass, srcDom);
-  return true;
+  return _doSimpleGPUUnifiedTransfer(this, destDom, srcClass, srcDom);
 }
 
 proc GPUUnifiedArr.canDoOptimizedSwap(other) {
@@ -1608,7 +1636,7 @@ proc GPUUnifiedArr.canDoOptimizedSwap(other) {
 // TODO: stridability causes issues with RAD swap, and somehow isn't captured by
 // the formal type when we check whether this resolves.
 proc GPUUnifiedArr.doiOptimizedSwap(other: this.type)
-  where this.stridable == other.stridable {
+  where this.strides == other.strides {
 
   if(canDoOptimizedSwap(other)) {
     if debugOptimizedSwap {
@@ -1645,7 +1673,9 @@ proc GPUUnifiedArr.doiOptimizedSwap(other) where debugOptimizedSwap {
   return false;
 }
 
-private proc _doSimpleBlockTransfer(Dest, destDom, Src, srcDom) {
+private proc _doSimpleGPUUnifiedTransfer(Dest, destDom, Src, srcDom) {
+  if !chpl_allStridesArePositive(Dest, destDom, Src, srcDom) then return false;
+
   if debugGPUUnifiedDistBulkTransfer then
     writeln("In GPUUnified=GPUUnified Bulk Transfer: Dest[", destDom, "] = Src[", srcDom, "]");
 
@@ -1680,12 +1710,15 @@ private proc _doSimpleBlockTransfer(Dest, destDom, Src, srcDom) {
       }
     }
   }
+
+  return true;
 }
 
 // Overload for any transfer *to* GPUUnified, if the RHS supports transfers to a
 // DefaultRectangular
 proc GPUUnifiedArr.doiBulkTransferFromAny(destDom, Src, srcDom) : bool
-where canDoAnyToBlock(this, destDom, Src, srcDom) {
+where canDoAnyToGPUUnified(this, destDom, Src, srcDom) {
+  if !chpl_allStridesArePositive(this, destDom, Src, srcDom) then return false;
 
   if debugGPUUnifiedDistBulkTransfer then
     writeln("In GPUUnifiedDist.doiBulkTransferFromAny");
@@ -1710,6 +1743,7 @@ where canDoAnyToBlock(this, destDom, Src, srcDom) {
 // For assignments of the form: DefaultRectangular = GPUUnified
 proc GPUUnifiedArr.doiBulkTransferToKnown(srcDom, Dest:DefaultRectangularArr, destDom) : bool
 where !disableGPUUnifiedDistBulkTransfer {
+  if !chpl_allStridesArePositive(this, srcDom, Dest, destDom) then return false;
 
   if debugGPUUnifiedDistBulkTransfer then
     writeln("In GPUUnifiedDist.doiBulkTransferToKnown(DefaultRectangular)");
@@ -1735,6 +1769,8 @@ where !disableGPUUnifiedDistBulkTransfer {
 // For assignments of the form: GPUUnified = DefaultRectangular
 proc GPUUnifiedArr.doiBulkTransferFromKnown(destDom, Src:DefaultRectangularArr, srcDom) : bool
 where !disableGPUUnifiedDistBulkTransfer {
+  if !chpl_allStridesArePositive(this, destDom, Src, srcDom) then return false;
+
   if debugGPUUnifiedDistBulkTransfer then
     writeln("In GPUUnifiedArr.doiBulkTransferFromKnown(DefaultRectangular)");
 
@@ -1758,7 +1794,7 @@ where !disableGPUUnifiedDistBulkTransfer {
   return true;
 }
 
-override proc GPUUnifiedArr.doiCanBulkTransferRankChange() param { return true; }
+override proc GPUUnifiedArr.doiCanBulkTransferRankChange() param do return true;
 
 config param debugGPUUnifiedScan = false;
 
@@ -1857,7 +1893,12 @@ proc GPUUnifiedArr.doiScan(op, dom) where (rank == 1) &&
         }
 
         // Iterator that yields values instead of references (to enable RVF)
-        iter valIter(iterable) {
+        iter valIter(iterable) where isPOD(iterable.eltType) {
+          for elem in iterable do yield elem;
+        }
+
+        // BigInteger values are yielded by ref to disable RVF
+        iter valIter(iterable) ref where !isPOD(iterable.eltType) {
           for elem in iterable do yield elem;
         }
 
@@ -1900,23 +1941,26 @@ proc GPUUnifiedArr.doiScan(op, dom) where (rank == 1) &&
   return res;
 }
 
-
 ////// Factory functions ////////////////////////////////////////////////////
 
+@deprecated(notes="'newGPUUnifiedDom' is deprecated - please use 'GPUUnified.createDomain' instead")
 proc newGPUUnifiedDom(dom: domain) {
   return dom dmapped GPUUnified(dom);
 }
 
+@deprecated(notes="'newGPUUnifiedArr' is deprecated - please use 'GPUUnified.createArray' instead")
 proc newGPUUnifiedArr(dom: domain, type eltType) {
   var D = newGPUUnifiedDom(dom);
   var A: [D] eltType;
   return A;
 }
 
+@deprecated(notes="'newGPUUnifiedDom' is deprecated - please use 'GPUUnified.createDomain' instead")
 proc newGPUUnifiedDom(rng: range...) {
   return newGPUUnifiedDom({(...rng)});
 }
 
+@deprecated(notes="'newGPUUnifiedArr' is deprecated - please use 'GPUUnified.createArray' instead")
 proc newGPUUnifiedArr(rng: range..., type eltType) {
   return newGPUUnifiedArr({(...rng)}, eltType);
 }
