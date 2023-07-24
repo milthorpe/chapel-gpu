@@ -1,4 +1,5 @@
 extern {
+  #include <stdio.h>
   #include <cuda.h>
   #include <assert.h>
 
