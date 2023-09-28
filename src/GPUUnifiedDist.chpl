@@ -457,6 +457,10 @@ class LocGPUUnifiedArr {
     // Here we need to clean up the rest of the array.
     if locRAD != nil then
       delete locRAD;
+    if (debugGPUUnifiedDist) {
+      writeln("freeing umemPtr ", umemPtr);
+    }
+    Free(umemPtr);
   }
 }
 
