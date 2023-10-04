@@ -47,6 +47,7 @@ private use ChapelDebugPrint;
 private use LayoutCS;
 
 private use CTypes;
+private use GPUAPI;
 
 public use SparseBlockDist;
 //
@@ -357,7 +358,7 @@ class LocGPUUnified {
 // locDoms:   a non-distributed array of local domain classes
 // whole:     a non-distributed domain that defines the domain's indices
 //
-class GPUUnifiedDom: BaseRectangularDom {
+class GPUUnifiedDom: BaseRectangularDom(?) {
   type sparseLayoutType;
   const dist: unmanaged GPUUnified(rank, idxType, sparseLayoutType);
   var locDoms: [dist.targetLocDom] unmanaged LocGPUUnifiedDom(rank, idxType, strides);
@@ -390,7 +391,7 @@ class LocGPUUnifiedDom {
 // locArr: a non-distributed array of local array classes
 // myLocArr: optimized reference to here's local array class (or nil)
 //
-class GPUUnifiedArr: BaseRectangularArr {
+class GPUUnifiedArr: BaseRectangularArr(?) {
   type sparseLayoutType;
   var doRADOpt: bool = defaultDoRADOpt;
   var dom: unmanaged GPUUnifiedDom(rank, idxType, strides, sparseLayoutType);
