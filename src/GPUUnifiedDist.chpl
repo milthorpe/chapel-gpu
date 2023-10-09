@@ -45,7 +45,9 @@ private use CommDiagnostics;
 private use ChapelLocks;
 private use ChapelDebugPrint;
 private use LayoutCS;
-use CTypes;
+
+private use CTypes;
+private use GPUAPI;
 
 public use SparseBlockDist;
 //
@@ -646,6 +648,10 @@ class LocGPUUnifiedArr : writeSerializable {
     // Here we need to clean up the rest of the array.
     if locRAD != nil then
       delete locRAD;
+    if (debugGPUUnifiedDist) {
+      writeln("freeing umemPtr ", umemPtr);
+    }
+    Free(umemPtr);
   }
 }
 
