@@ -19,9 +19,9 @@
  */
 
 //
-// The GPUUnified distribution is defined with six classes:
+// The gpuUnifiedDist distribution is defined with six classes:
 //
-//   GPUUnified       : distribution class
+//   GPUUnifiedImpl   : distribution class
 //   GPUUnifiedDom    : domain class
 //   GPUUnifiedArr    : array class
 //   LocGPUUnified    : local distribution class (per-locale instances)
@@ -45,14 +45,12 @@ private use CommDiagnostics;
 private use ChapelLocks;
 private use ChapelDebugPrint;
 private use LayoutCS;
-
-private use CTypes;
-private use GPUAPI;
+use CTypes;
 
 public use SparseBlockDist;
 //
 // These flags are used to output debug information and run extra
-// checks when using GPUUnified.  Should these be promoted so that they can
+// checks when using gpuUnifiedDist.  Should these be promoted so that they can
 // be used across all distributions?  This can be done by turning them
 // into compiler flags or adding config parameters to the internal
 // modules, perhaps called debugDists and checkDists.
@@ -83,7 +81,7 @@ config param testFastFollowerOptimization = false;
 config param disableGPUUnifiedLazyRAD = defaultDisableLazyRADOpt;
 
 //
-// GPUUnified Distribution Class
+// GPUUnifiedImpl Distribution Class
 //
 //   The fields dataParTasksPerLocale, dataParIgnoreRunningTasks, and
 //   dataParMinGranularity can be changed, but changes are
@@ -116,7 +114,7 @@ config param disableGPUUnifiedLazyRAD = defaultDisableLazyRADOpt;
 //
 // dataParTasksPerLocale: an integer that specifies the number of tasks to
 //                        use on each locale when iterating in parallel over
-//                        a GPUUnified-distributed domain or array
+//                        a debugGPUUnifiedScan-distributed domain or array
 //
 // dataParIgnoreRunningTasks: a boolean what dictates whether the number of
 //                            task use on each locale should be limited
@@ -135,58 +133,59 @@ config param disableGPUUnifiedLazyRAD = defaultDisableLazyRADOpt;
 //   disableGPUUnifiedLazyRAD
 //
 /*
-This GPUUnified distribution partitions indices into blocks
-according to a ``boundingBox`` domain
-and maps each entire block onto a locale from a ``targetLocales`` array.
 
-The indices inside the bounding box are partitioned "evenly" across
-the target locales. An index outside the bounding box is mapped to the
-same locale as the nearest index inside the bounding box.
+The ``gpuUnifiedDist`` distribution partitions the indices specified by a
+``boundingBox`` domain into contiguous blocks, mapping each block to a
+distinct locale in a ``targetLocales`` array.  The indices within the
+bounding box are partitioned as evenly as possible across the target
+locales.  An index outside the bounding box is mapped to the same
+locale as the nearest index within the bounding box.
 
-Formally, an index ``idx`` is mapped to ``targetLocales[locIdx]``,
-where ``locIdx`` is computed as follows.
+More precisely, an index ``idx`` is mapped to
+``targetLocales[locIdx]``, where ``locIdx`` is computed as follows.
 
-In the 1-dimensional case, for a GPUUnified distribution with:
+In the 1-dimensional case, for a ``gpuUnifiedDist`` distribution with:
 
 
   =================   ====================
   ``boundingBox``     ``{low..high}``
-  ``targetLocales``   ``[0..N-1] locale``
+  ``targetLocales``   ``[0..n-1] locale``
   =================   ====================
 
-we have:
+``locIdx`` is computed from ``idx`` as follows:
 
-  ===================    ==========================================
-  if ``idx`` is ...      ``locIdx`` is ...
-  ===================    ==========================================
-  ``low<=idx<=high``     ``floor(  (idx-low)*N / (high-low+1)  )``
-  ``idx < low``          ``0``
-  ``idx > high``         ``N-1``
-  ===================    ==========================================
+  =======================    =====================================
+  if ``idx`` is ...          ``locIdx`` is ...
+  =======================    =====================================
+  ``low <= idx <= high``     ``floor((idx-low)*N / (high-low+1))``
+  ``idx < low``              ``0``
+  ``idx > high``             ``n-1``
+  =======================    =====================================
 
 In the multidimensional case, ``idx`` and ``locIdx`` are tuples
 of indices; ``boundingBox`` and ``targetLocales`` are multi-dimensional;
-the above computation is applied in each dimension.
+and the above computation is applied in each dimension.
 
 
 **Example**
 
-The following code declares a domain ``D`` distributed over
-a GPUUnified distribution with a bounding box equal to the domain ``Space``,
-and declares an array ``A`` over that domain.
-The `forall` loop sets each array element
-to the ID of the locale to which it is mapped.
+The following code declares a domain ``D`` distributed over a
+``gpuUnifiedDist`` distribution with a bounding box and index set equal to
+the non-distributed domain ``Space``.  It then declares an array ``A``
+over that domain.  The `forall` loop sets each array element to the ID
+of the locale to which it is mapped.
 
   .. code-block:: chapel
 
-    use GPUUnifiedDist;
+    use gpuUnifiedDist;
 
     const Space = {1..8, 1..8};
-    const D: domain(2) dmapped GPUUnified(boundingBox=Space) = Space;
+    const Dist = new gpuUnifiedDist(boundingBox=Space);
+    const D = Dist.createDomain(Space);
     var A: [D] int;
 
     forall a in A do
-      a = a.locale.id;
+      a = here.id;
 
     writeln(A);
 
@@ -204,21 +203,28 @@ When run on 6 locales, the output is:
     4 4 4 4 5 5 5 5
 
 
+**Data-Parallel Iteration**
+
+As demonstrated by the above example, a `forall` loop over a
+``gpuUnifiedDist``-distributed domain or array executes each iteration on
+the locale owning the index in question.
+
+By default, parallelism within each locale is applied to that locale's
+block of indices by creating a task for each available processor core
+(or the number of local indices if it is less than the number of
+cores). The local domain indices are then statically divided as evenly
+as possible between those tasks.
+
+
 **Initializer Arguments**
 
-The ``GPUUnified`` class initializer is defined as follows:
+The ``gpuUnifiedDist`` initializer is defined as follows:
 
   .. code-block:: chapel
 
-    proc GPUUnified.init(
-      boundingBox: domain,
-      targetLocales: [] locale  = Locales,
-      dataParTasksPerLocale     = // value of  dataParTasksPerLocale      config const,
-      dataParIgnoreRunningTasks = // value of  dataParIgnoreRunningTasks  config const,
-      dataParMinGranularity     = // value of  dataParMinGranularity      config const,
-      param rank                = boundingBox.rank,
-      type  idxType             = boundingBox.idxType,
-      type  sparseLayoutType    = DefaultDist)
+    proc gpuUnifiedDist.init(
+      boundingBox: domain(?),
+      targetLocales: [] locale  = Locales)
 
 The arguments ``boundingBox`` (a domain) and ``targetLocales`` (an array)
 define the mapping of any index of ``idxType`` type to a locale
@@ -230,72 +236,120 @@ heuristic is used to reshape the array of target locales so that it
 matches the rank of the distribution and each dimension contains an
 approximately equal number of indices.
 
-The arguments ``dataParTasksPerLocale``, ``dataParIgnoreRunningTasks``,
-and ``dataParMinGranularity`` set the knobs that are used to
-control intra-locale data parallelism for GPUUnified-distributed domains
-and arrays in the same way that the like-named config constants
-control data parallelism for ranges and default-distributed domains
-and arrays.
+**Convenience Factory Methods**
 
-The ``rank`` and ``idxType`` arguments are inferred from the ``boundingBox``
-argument unless explicitly set.  They must match the rank and index type of the
-domains "dmapped" using that GPUUnified instance. If the ``boundingBox`` argument is
-a stridable domain, the stride information will be ignored and the
-``boundingBox`` will only use the lo..hi bounds.
+It is common for a ``gpuUnifiedDist``-distributed domain or array to be
+declared using the same indices for both its ``boundingBox`` and its
+index set (as in the example using ``Space`` above).  It is also
+common to not override any of the other defaulted initializer
+arguments.  In such cases, factory methods can be used for
+convenience and to avoid repetition.
 
-When a ``sparse subdomain`` is created for a ``GPUUnified`` distributed domain, the
-``sparseLayoutType`` will be the layout of these sparse domains. The default is
-currently coordinate, but :class:`LayoutCS.CS` is an interesting alternative.
-
-**Convenience Initializer Functions**
-
-It is common for a ``GPUUnified`` distribution to distribute its ``boundingBox``
-across all locales. In this case, a convenience function can be used to
-declare variables of block-distributed domain or array type.  These functions
-take a domain or list of ranges as arguments and return a block-distributed
-domain or array.
+These methods take a domain or series of ranges as arguments and
+return a new block-distributed domain or array.  For example, the
+following declarations create new ``5 x 5`` block-distributed domains
+and arrays using ``{1..5, 1..5}`` as both the bounding box and index
+set:
 
   .. code-block:: chapel
 
-    use GPUUnifiedDist;
+    use gpuUnifiedDist;
 
-    var GPUUnifiedDom1 = GPUUnified.createDomain({1..5, 1..5});
-    var GPUUnifiedArr1 = GPUUnified.createArray({1..5, 1..5}, real);
-    var GPUUnifiedDom2 = GPUUnified.createDomain(1..5, 1..5);
-    var GPUUnifiedArr2 = GPUUnified.createArray(1..5, 1..5, real);
+    var GPUUnifiedDom1 = gpuUnifiedDist.createDomain({1..5, 1..5});
+    var GPUUnifiedDom2 = gpuUnifiedDist.createDomain(1..5, 1..5);
+    var GPUUnifiedArr1 = gpuUnifiedDist.createArray({1..5, 1..5}, real);
+    var GPUUnifiedArr2 = gpuUnifiedDist.createArray(1..5, 1..5, real);
 
-**Data-Parallel Iteration**
+The helper methods on ``gpuUnifiedDist`` have the following signatures:
 
-A `forall` loop over a GPUUnified-distributed domain or array
-executes each iteration on the locale where that iteration's index
-is mapped to.
+  .. function:: proc type gpuUnifiedDist.createDomain(dom: domain, targetLocales = Locales)
 
-Parallelism within each locale is guided by the values of
-``dataParTasksPerLocale``, ``dataParIgnoreRunningTasks``, and
-``dataParMinGranularity`` of the respective GPUUnified instance.
-Updates to these values, if any, take effect only on the locale
-where the updates are made.
+    Create a block-distributed domain. The provided domain is used as the
+    ``boundingBox``.
+
+  .. function:: proc type gpuUnifiedDist.createDomain(rng: range(?)..., targetLocales = Locales)
+
+    Create a block-distributed domain from a series of ranges. The ranges
+    are also used to construct the ``boundingBox``.
+
+  .. function:: proc type gpuUnifiedDist.createArray(dom: domain, type eltType, targetLocales = Locales)
+
+    Create a default-initialized block-distributed array whose indices
+    match those of the given domain.
+
+  .. function:: proc type gpuUnifiedDist.createArray(rng: range(?)..., type eltType, targetLocales = Locales)
+
+    Create a default-initialized block-distributed array using a
+    domain constructed from the series of ranges.
+
+  .. function:: proc type gpuUnifiedDist.createArray(dom: domain, type eltType, initExpr, targetLocales = Locales)
+
+    Create a block-distributed array whose indices match those of the
+    given domain.
+
+    The array's values are initialized using ``initExpr`` which can be any of
+    the following:
+
+    * a value coercible to ``eltType`` — all elements of the array will be
+      assigned with this value
+    * an iterator expression with compatible size and type — the array elements
+      will be initialized with the values yielded by the iterator
+    * an array of compatible size and type — the array will be assigned into
+      the distributed array
+
+    .. Warning::
+      ``gpuUnifiedDist.createArray`` with an ``initExpr`` formal is unstable and may change in a future release
+
+  .. function:: proc type gpuUnifiedDist.createArray(rng: range(?)..., type eltType, initExpr, targetLocales = Locales)
+
+    Create a block-distributed array using a domain constructed from
+    the series of ranges.
+
+    The array's values are initialized using ``initExpr`` which can be any of
+    the following:
+
+    * a value coercible to ``eltType`` — all elements of the array will be
+      assigned with this value
+    * an iterator expression with compatible size and type — the array elements
+      will be initialized with the values yielded by the iterator
+    * an array of compatible size and type — the array will be assigned into
+      the distributed array
+
+    .. Warning::
+      ``gpuUnifiedDist.createArray`` with an ``initExpr`` formal is unstable and may change in a future release
+
+  .. function:: proc gpuUnifiedDist.createDomain(dom: domain(?))
+
+    Create a block-distributed domain over an existing ``gpuUnifiedDist`` by copying
+    the index space from the passed domain.
+
+  .. function:: proc gpuUnifiedDist.createDomain(rng: range(?)...)
+
+    Create a block-distributed domain from a series of ranges over an existing
+    ``gpuUnifiedDist``.
 
 **Sparse Subdomains**
 
-When a ``sparse subdomain`` is declared as a subdomain to a GPUUnified-distributed
-domain, the resulting sparse domain will also be GPUUnified-distributed. The
-sparse layout used in this sparse subdomain can be controlled with the
-``sparseLayoutType`` initializer argument to GPUUnified.
+When a ``sparse subdomain`` is created from a block-distributed
+domain, the resulting sparse domain will share the same block
+distribution across locales.  The sparse layout used in this sparse
+subdomain can be controlled with the ``sparseLayoutType`` initializer
+argument to ``gpuUnifiedDist``.
 
-This example demonstrates a GPUUnified-distributed sparse domain and array:
+The following example demonstrates a block-distributed sparse domain
+and array:
 
   .. code-block:: chapel
 
-    use GPUUnifiedDist;
+    use gpuUnifiedDist;
 
     const Space = {1..8, 1..8};
 
-    // Declare a dense, GPUUnified-distributed domain.
-    const DenseDom: domain(2) dmapped GPUUnified(boundingBox=Space) = Space;
+    // Declare a dense, gpuUnifiedDist-distributed domain.
+    const DenseDom = gpuUnifiedDist.createDomain(Space);
 
     // Declare a sparse subdomain.
-    // Since DenseDom is GPUUnified-distributed, SparseDom will be as well.
+    // Since DenseDom is gpuUnifiedDist-distributed, SparseDom will be as well.
     var SparseDom: sparse subdomain(DenseDom);
 
     // Add some elements to the sparse subdomain.
@@ -303,7 +357,7 @@ This example demonstrates a GPUUnified-distributed sparse domain and array:
     SparseDom += [ (1,2), (3,6), (5,4), (7,8) ];
 
     // Declare a sparse array.
-    // This array is also GPUUnified-distributed.
+    // This array is also gpuUnifiedDist-distributed.
     var A: [SparseDom] int;
 
     A = 1;
@@ -322,7 +376,122 @@ This example demonstrates a GPUUnified-distributed sparse domain and array:
 
 
 */
-class GPUUnified : BaseDist {
+
+pragma "ignore noinit"
+record gpuUnifiedDist : writeSerializable {
+  param rank: int;
+  type idxType = int;
+  type sparseLayoutType = unmanaged DefaultDist;
+
+  forwarding const chpl_distHelp: chpl_PrivatizedDistHelper(unmanaged GPUUnifiedImpl(rank, idxType, _to_unmanaged(sparseLayoutType)));
+
+  pragma "last resort"
+  @unstable("passing arguments other than 'boundingBox' and 'targetLocales' to 'gpuUnifiedDist' is currently unstable")
+  proc init(boundingBox: domain(?),
+            targetLocales: [] locale = Locales,
+            dataParTasksPerLocale=getDataParTasksPerLocale(),
+            dataParIgnoreRunningTasks=getDataParIgnoreRunningTasks(),
+            dataParMinGranularity=getDataParMinGranularity(),
+            param rank = boundingBox.rank,
+            type idxType = boundingBox.idxType,
+            type sparseLayoutType = unmanaged DefaultDist) {
+    const value = new unmanaged GPUUnifiedImpl(boundingBox, targetLocales,
+                                          dataParTasksPerLocale,
+                                          dataParIgnoreRunningTasks,
+                                          dataParMinGranularity,
+                                          rank, idxType, _to_unmanaged(sparseLayoutType));
+    this.rank = rank;
+    this.idxType = idxType;
+    this.sparseLayoutType = _to_unmanaged(sparseLayoutType);
+    this.chpl_distHelp = new chpl_PrivatizedDistHelper(
+                          if _isPrivatized(value)
+                            then _newPrivatizedClass(value)
+                            else nullPid,
+                          value);
+  }
+
+  proc init(boundingBox: domain(?),
+            targetLocales: [] locale = Locales)
+  {
+    this.init(boundingBox, targetLocales,
+              /* by specifying even one unstable argument, this should select
+                 the whole unstable constructor, which has defaults for everything
+                 else. */
+              dataParTasksPerLocale=getDataParTasksPerLocale());
+  }
+
+    proc init(_pid : int, _instance, _unowned : bool) {
+      this.rank = _instance.rank;
+      this.idxType = _instance.idxType;
+      this.sparseLayoutType = _instance.sparseLayoutType;
+      this.chpl_distHelp = new chpl_PrivatizedDistHelper(_pid,
+                                                         _instance,
+                                                         _unowned);
+    }
+
+    proc init(value) {
+      this.rank = value.rank;
+      this.idxType = value.idxType;
+      this.sparseLayoutType = value.sparseLayoutType;
+      this.chpl_distHelp = new chpl_PrivatizedDistHelper(
+                             if _isPrivatized(value)
+                               then _newPrivatizedClass(value)
+                               else nullPid,
+                             _to_unmanaged(value));
+    }
+
+    // Note: This does not handle the case where the desired type of 'this'
+    // does not match the type of 'other'. That case is handled by the compiler
+    // via coercions.
+    proc init=(const ref other : gpuUnifiedDist(?)) {
+      this.init(other._value.dsiClone());
+    }
+
+    proc clone() {
+      return new gpuUnifiedDist(this._value.dsiClone());
+    }
+
+  @chpldoc.nodoc
+  inline operator ==(d1: gpuUnifiedDist(?), d2: gpuUnifiedDist(?)) {
+    if (d1._value == d2._value) then
+      return true;
+    return d1._value.dsiEqualDMaps(d2._value);
+  }
+
+  @chpldoc.nodoc
+  inline operator !=(d1: gpuUnifiedDist(?), d2: gpuUnifiedDist(?)) {
+    return !(d1 == d2);
+  }
+
+  proc writeThis(x) {
+    chpl_distHelp.writeThis(x);
+  }
+
+  proc serialize(writer, ref serializer) throws {
+    writeThis(writer);
+  }
+}
+
+
+@chpldoc.nodoc
+@unstable(category="experimental", reason="assignment between distributions is currently unstable due to lack of testing")
+operator =(ref a: gpuUnifiedDist(?), b: gpuUnifiedDist(?)) {
+  if a._value == nil {
+    __primitive("move", a, chpl__autoCopy(b.clone(), definedConst=false));
+  } else {
+    if a._value.type != b._value.type then
+      compilerError("type mismatch in distribution assignment");
+    if a._value == b._value {
+      // do nothing
+    } else
+        a._value.dsiAssign(b._value);
+    if _isPrivatized(a._instance) then
+      _reprivatize(a._value);
+  }
+}
+
+@chpldoc.nodoc
+class GPUUnifiedImpl : BaseDist, writeSerializable {
   param rank: int;
   type idxType = int;
   var boundingBox: domain(rank, idxType);
@@ -338,8 +507,8 @@ class GPUUnified : BaseDist {
 //
 // Local GPUUnified Distribution Class
 //
-// rank : generic rank that matches GPUUnified.rank
-// idxType: generic index type that matches GPUUnified.idxType
+// rank : generic rank that matches GPUUnifiedImpl.rank
+// idxType: generic index type that matches GPUUnifiedImpl.idxType
 // myChunk: a non-distributed domain that defines this locale's indices
 //
 class LocGPUUnified {
@@ -360,7 +529,7 @@ class LocGPUUnified {
 //
 class GPUUnifiedDom: BaseRectangularDom(?) {
   type sparseLayoutType;
-  const dist: unmanaged GPUUnified(rank, idxType, sparseLayoutType);
+  const dist: unmanaged GPUUnifiedImpl(rank, idxType, sparseLayoutType);
   var locDoms: [dist.targetLocDom] unmanaged LocGPUUnifiedDom(rank, idxType, strides);
   var whole: domain(rank, idxType, strides);
 }
@@ -412,7 +581,7 @@ class GPUUnifiedArr: BaseRectangularArr(?) {
 // locDom: reference to local domain class
 // myElems: a non-distributed array of local elements
 //
-class LocGPUUnifiedArr {
+class LocGPUUnifiedArr : writeSerializable {
   type eltType;
   param rank: int;
   type idxType;
@@ -446,6 +615,21 @@ class LocGPUUnifiedArr {
     }
   }
 
+  proc init(type eltType,
+            param rank: int,
+            type idxType,
+            param strides: strideKind,
+            const locDom: unmanaged LocGPUUnifiedDom(rank, idxType, strides),
+            data: _ddata(eltType),
+            size: int) {
+    this.eltType = eltType;
+    this.rank = rank;
+    this.idxType = idxType;
+    this.strides = strides;
+    this.locDom = locDom;
+    this.myElems = this.locDom.myBlock.buildArrayWith(eltType, data, size);
+  }
+
   // guard against dynamic dispatch resolution trying to resolve
   // write()ing out an array of sync vars and hitting the sync var
   // type's compilerError()
@@ -453,25 +637,25 @@ class LocGPUUnifiedArr {
     halt("LocGPUUnifiedArr.writeThis() is not implemented / should not be needed");
   }
 
+  override proc serialize(writer, ref serializer) throws {
+    halt("LocGPUUnifiedArr.serialize() is not implemented / should not be needed");
+  }
+
   proc deinit() {
     // Elements in myElems are deinited in dsiDestroyArr if necessary.
     // Here we need to clean up the rest of the array.
     if locRAD != nil then
       delete locRAD;
-    if (debugGPUUnifiedDist) {
-      writeln("freeing umemPtr ", umemPtr);
-    }
-    Free(umemPtr);
   }
 }
 
 
-////// GPUUnified and LocGPUUnified methods ///////////////////////////////////////////
+////// GPUUnifiedImpl and LocGPUUnified methods ///////////////////////////////////////////
 
 //
-// GPUUnified initializer for clients of the GPUUnified distribution
+// GPUUnifiedImpl initializer for clients of the GPUUnified distribution
 //
-proc GPUUnified.init(boundingBox: domain,
+proc GPUUnifiedImpl.init(boundingBox: domain(?),
                 targetLocales: [] locale = Locales,
                 dataParTasksPerLocale=getDataParTasksPerLocale(),
                 dataParIgnoreRunningTasks=getDataParIgnoreRunningTasks(),
@@ -482,22 +666,22 @@ proc GPUUnified.init(boundingBox: domain,
   this.rank = rank;
   this.idxType = idxType;
   if rank != boundingBox.rank then
-    compilerError("specified GPUUnified rank != rank of specified bounding box");
+    compilerError("specified rank != rank of specified bounding box");
   if idxType != boundingBox.idxType then
-    compilerError("specified GPUUnified index type != index type of specified bounding box");
+    compilerError("specified index type != index type of specified bounding box");
   if rank != 2 && isCSType(sparseLayoutType) then
     compilerError("CS layout is only supported for 2 dimensional domains");
 
   if boundingBox.sizeAs(uint) == 0 then
-    halt("GPUUnified() requires a non-empty boundingBox");
+    halt("gpuUnifiedDist() requires a non-empty boundingBox");
 
-  this.boundingBox = boundingBox : domain(rank, idxType);
+  this.boundingBox = boundsBox(boundingBox);
 
   if !allowDuplicateTargetLocales {
     var checkArr: [LocaleSpace] bool;
     for loc in targetLocales {
       if checkArr[loc.id] then
-        halt("GPUUnifiedDist does not allow duplicate targetLocales");
+        halt("gpuUnifiedDist does not allow duplicate targetLocales");
       checkArr[loc.id] = true;
     }
   }
@@ -537,16 +721,27 @@ proc GPUUnified.init(boundingBox: domain,
 
   this.sparseLayoutType = _to_unmanaged(sparseLayoutType);
 
-  this.complete();
+  init this;
 
   if debugGPUUnifiedDist {
-    writeln("Creating new GPUUnified distribution:");
+    writeln("Creating new gpuUnifiedDist distribution:");
     dsiDisplayRepresentation();
   }
 }
 
-@unstable(category="experimental", reason="'GPUUnified.redistribute()' is currently unstable due to lack of design review and is being made available as a prototype")
-proc GPUUnified.redistribute(const in newBbox) {
+// Returns a DR domain with (lowBound..highBound) of each of src's dimensions.
+// If we used domain.boundingBox() instead, this test would fail under gasnet:
+//   test/optimizations/bulkcomm/block/blockToBlock.chpl
+proc boundsBox(srcDom: domain(?)) {
+  var dst: srcDom.rank*range(srcDom.idxType, boundKind.both, strideKind.one);
+  const src = srcDom.dims();
+  for param dim in 0..src.size-1 do
+    dst[dim] = src[dim].lowBound .. src[dim].highBound;
+  return {(...dst)};
+}
+
+@unstable(category="experimental", reason="'gpuUnifiedDist.redistribute()' is currently unstable due to lack of design review and is being made available as a prototype")
+proc GPUUnifiedImpl.redistribute(const in newBbox) {
   const newBboxDims = newBbox.dims();
   const pid = this.pid;
   coforall (locid, loc, locdist) in zip(targetLocDom, targetLocales, locDist) {
@@ -561,10 +756,10 @@ proc GPUUnified.redistribute(const in newBbox) {
 }
 
 
-proc GPUUnified.dsiAssign(other: this.type) {
+proc GPUUnifiedImpl.dsiAssign(other: this.type) {
   if (this.targetLocDom != other.targetLocDom ||
       || reduce (this.targetLocales != other.targetLocales)) {
-    halt("GPUUnified distribution assignments currently require the target locale arrays to match");
+    halt("'gpuUnifiedDist' assignments currently require the target locale arrays to match");
   }
 
   this.redistribute(other.boundingBox);
@@ -574,7 +769,7 @@ proc GPUUnified.dsiAssign(other: this.type) {
 // GPUUnified distributions are equivalent if they share the same bounding
 // box and target locale set.
 //
-proc GPUUnified.dsiEqualDMaps(that: GPUUnified(?)) {
+proc GPUUnifiedImpl.dsiEqualDMaps(that: GPUUnifiedImpl(?)) {
   return (this.rank == that.rank &&
           this.boundingBox == that.boundingBox &&
           this.targetLocales.equals(that.targetLocales));
@@ -583,12 +778,12 @@ proc GPUUnified.dsiEqualDMaps(that: GPUUnified(?)) {
 //
 // GPUUnified distributions are not equivalent to other domain maps.
 //
-proc GPUUnified.dsiEqualDMaps(that) param {
+proc GPUUnifiedImpl.dsiEqualDMaps(that) param {
   return false;
 }
 
-proc GPUUnified.dsiClone() {
-  return new unmanaged GPUUnified(boundingBox, targetLocales,
+proc GPUUnifiedImpl.dsiClone() {
+  return new unmanaged GPUUnifiedImpl(boundingBox, targetLocales,
                    dataParTasksPerLocale, dataParIgnoreRunningTasks,
                    dataParMinGranularity,
                    rank,
@@ -596,14 +791,14 @@ proc GPUUnified.dsiClone() {
                    sparseLayoutType);
 }
 
-override proc GPUUnified.dsiDestroyDist() {
+override proc GPUUnifiedImpl.dsiDestroyDist() {
   coforall ld in locDist do {
     on ld do
       delete ld;
   }
 }
 
-override proc GPUUnified.dsiDisplayRepresentation() {
+override proc GPUUnifiedImpl.dsiDisplayRepresentation() {
   writeln("boundingBox = ", boundingBox);
   writeln("targetLocDom = ", targetLocDom);
   writeln("targetLocales = ", for tl in targetLocales do tl.id);
@@ -614,12 +809,12 @@ override proc GPUUnified.dsiDisplayRepresentation() {
     writeln("locDist[", tli, "].myChunk = ", locDist[tli].myChunk);
 }
 
-override proc GPUUnified.dsiNewRectangularDom(param rank: int, type idxType,
+override proc GPUUnifiedImpl.dsiNewRectangularDom(param rank: int, type idxType,
                                          param strides: strideKind, inds) {
   if idxType != this.idxType then
-    compilerError("GPUUnified domain index type does not match distribution's");
+    compilerError("domain index type does not match distribution's");
   if rank != this.rank then
-    compilerError("GPUUnified domain rank does not match distribution's");
+    compilerError("domain rank does not match distribution's");
 
   const whole = createWholeDomainForInds(rank, idxType, strides, inds);
 
@@ -646,8 +841,8 @@ override proc GPUUnified.dsiNewRectangularDom(param rank: int, type idxType,
   return dom;
 }
 
-override proc GPUUnified.dsiNewSparseDom(param rank: int, type idxType,
-                                    dom: domain) {
+override proc GPUUnifiedImpl.dsiNewSparseDom(param rank: int, type idxType,
+                                    dom: domain(?)) {
   var ret =  new unmanaged SparseBlockDom(rank=rank, idxType=idxType,
                             sparseLayoutType=sparseLayoutType,
                             strides=dom.strides,
@@ -660,9 +855,9 @@ override proc GPUUnified.dsiNewSparseDom(param rank: int, type idxType,
 //
 // output distribution
 //
-proc GPUUnified.writeThis(x) throws {
-  x.writeln("GPUUnified");
-  x.writeln("-------");
+proc GPUUnifiedImpl.writeThis(x) throws {
+  x.writeln("gpuUnifiedDist");
+  x.writeln("---------");
   x.writeln("distributes: ", boundingBox);
   x.writeln("across locales: ", targetLocales);
   x.writeln("indexed via: ", targetLocDom);
@@ -672,11 +867,15 @@ proc GPUUnified.writeThis(x) throws {
       " owns chunk: ", locDist(locid).myChunk);
 }
 
-proc GPUUnified.dsiIndexToLocale(ind: idxType) where rank == 1 {
+override proc GPUUnifiedImpl.serialize(writer, ref serializer) throws {
+  writeThis(writer);
+}
+
+proc GPUUnifiedImpl.dsiIndexToLocale(ind: idxType) where rank == 1 {
   return targetLocales(targetLocsIdx(ind));
 }
 
-proc GPUUnified.dsiIndexToLocale(ind: rank*idxType) {
+proc GPUUnifiedImpl.dsiIndexToLocale(ind: rank*idxType) {
   return targetLocales(targetLocsIdx(ind));
 }
 
@@ -684,7 +883,7 @@ proc GPUUnified.dsiIndexToLocale(ind: rank*idxType) {
 // compute what chunk of inds is owned by a given locale -- assumes
 // it's being called on the locale in question
 //
-proc GPUUnified.getChunk(inds, locid) {
+proc GPUUnifiedImpl.getChunk(inds, locid) {
   // use domain slicing to get the intersection between what the
   // locale owns and the domain's index set
   //
@@ -714,11 +913,11 @@ proc GPUUnified.getChunk(inds, locid) {
 //
 // get the index into the targetLocales array for a given distributed index
 //
-proc GPUUnified.targetLocsIdx(ind: idxType) where rank == 1 {
+proc GPUUnifiedImpl.targetLocsIdx(ind: idxType) where rank == 1 {
   return targetLocsIdx((ind,));
 }
 
-proc GPUUnified.targetLocsIdx(ind: rank*idxType) {
+proc GPUUnifiedImpl.targetLocsIdx(ind: rank*idxType) {
   var result: rank*int;
   for param i in 0..rank-1 do
     result(i) = max(0, min(targetLocDom.dim(i).sizeAs(int)-1,
@@ -729,7 +928,7 @@ proc GPUUnified.targetLocsIdx(ind: rank*idxType) {
 }
 
 // TODO: This will not trigger the bounded-coforall optimization
-iter GPUUnified.activeTargetLocales(const space : domain = boundingBox) {
+iter GPUUnifiedImpl.activeTargetLocales(const space : domain(?) = boundingBox) {
   const locSpace = {(...space.dims())}; // make a local domain in case 'space' is distributed
   const low  = chpl__tuplify(targetLocsIdx(locSpace.low));
   const high = chpl__tuplify(targetLocsIdx(locSpace.high));
@@ -758,25 +957,131 @@ iter GPUUnified.activeTargetLocales(const space : domain = boundingBox) {
   }
 }
 
-proc type GPUUnified.createDomain(dom: domain) {
-  return dom dmapped GPUUnified(dom);
+// create a domain over an existing gpuUnifiedDist Distribution
+proc gpuUnifiedDist.createDomain(dom: domain(?)) {
+  return dom dmapped this;
 }
 
-proc type GPUUnified.createDomain(rng: range...) {
+// create a domain over an existing gpuUnifiedDist Distribution constructed from a series of ranges
+proc gpuUnifiedDist.createDomain(rng: range(?)...) {
+  return this.createDomain({(...rng)});
+}
+
+// create a domain over a gpuUnifiedDist Distribution
+proc type gpuUnifiedDist.createDomain(dom: domain(?), targetLocales: [] locale = Locales) {
+  return dom dmapped gpuUnifiedDist(dom, targetLocales);
+}
+
+// create a domain over a gpuUnifiedDist Distribution constructed from a series of ranges
+proc type gpuUnifiedDist.createDomain(rng: range(?)..., targetLocales: [] locale = Locales) {
+  return createDomain({(...rng)}, targetLocales);
+}
+
+proc type gpuUnifiedDist.createDomain(rng: range(?)...) {
   return createDomain({(...rng)});
 }
 
-proc type GPUUnified.createArray(dom: domain, type eltType) {
-  var D = createDomain(dom);
+// create an array over a gpuUnifiedDist Distribution, default initialized
+proc type gpuUnifiedDist.createArray(
+  dom: domain(?),
+  type eltType,
+  targetLocales: [] locale = Locales
+) {
+  var D = createDomain(dom, targetLocales);
   var A: [D] eltType;
   return A;
 }
 
-proc type GPUUnified.createArray(rng: range..., type eltType) {
+// create an array over a gpuUnifiedDist Distribution, initialized with the given value or iterator
+@unstable("'gpuUnifiedDist.createArray' with an 'initExpr' formal is unstable and may change in a future release")
+proc type gpuUnifiedDist.createArray(
+  dom: domain(?),
+  type eltType,
+  initExpr: ?t,
+  targetLocales: [] locale = Locales
+) where isSubtype(t, _iteratorRecord) || isCoercible(t, eltType)
+{
+  var D = createDomain(dom, targetLocales);
+  var A: [D] eltType;
+  A = initExpr;
+  return A;
+}
+
+// create an array over a gpuUnifiedDist Distribution, initialized from the given array
+@unstable("'gpuUnifiedDist.createArray' with an 'initExpr' formal is unstable and may change in a future release")
+proc type gpuUnifiedDist.createArray(
+  dom: domain(?),
+  type eltType,
+  initExpr: [?arrayDom] ?arrayEltType,
+  targetLocales: [] locale = Locales
+) where dom.rank == arrayDom.rank && isCoercible(arrayEltType, eltType)
+{
+  if boundsChecking then
+  for (d, ad, i) in zip(dom.dims(), arrayDom.dims(), 0..) do
+    if d.size != ad.size then halt("Domain size mismatch in 'gpuUnifiedDist.createArray' dimension " + i:string);
+
+  var D = createDomain(dom, targetLocales);
+  var A: [D] eltType;
+  A = initExpr;
+  return A;
+}
+
+// create an array over a gpuUnifiedDist Distribution constructed from a series of ranges, default initialized
+proc type gpuUnifiedDist.createArray(
+  rng: range(?)...,
+  type eltType,
+  targetLocales: [] locale = Locales
+) {
+  return createArray({(...rng)}, eltType, targetLocales);
+}
+
+proc type gpuUnifiedDist.createArray(rng: range(?)..., type eltType) {
   return createArray({(...rng)}, eltType);
 }
 
-proc chpl__computeBlock(locid, targetLocBox:domain, boundingBox:domain,
+// create an array over a gpuUnifiedDist Distribution constructed from a series of ranges, initialized with the given value or iterator
+@unstable("'gpuUnifiedDist.createArray' with an 'initExpr' formal is unstable and may change in a future release")
+proc type gpuUnifiedDist.createArray(
+  rng: range(?)...,
+  type eltType, initExpr: ?t,
+  targetLocales: [] locale = Locales
+) where isSubtype(t, _iteratorRecord) || isCoercible(t, eltType)
+{
+  return createArray({(...rng)}, eltType, initExpr, targetLocales);
+}
+
+@unstable("'gpuUnifiedDist.createArray' with an 'initExpr' formal is unstable and may change in a future release")
+proc type gpuUnifiedDist.createArray(rng: range(?)..., type eltType, initExpr: ?t)
+  where isSubtype(t, _iteratorRecord) || isCoercible(t, eltType)
+{
+  return createArray({(...rng)}, eltType, initExpr);
+}
+
+
+// create an array over a gpuUnifiedDist Distribution constructed from a series of ranges, initialized from the given array
+@unstable("'gpuUnifiedDist.createArray' with an 'initExpr' formal is unstable and may change in a future release")
+proc type gpuUnifiedDist.createArray(
+  rng: range(?)...,
+  type eltType,
+  initExpr: [?arrayDom] ?arrayEltType,
+  targetLocales: [] locale = Locales
+) where rng.size == arrayDom.rank && isCoercible(arrayEltType, eltType)
+{
+  return createArray({(...rng)}, eltType, initExpr, targetLocales);
+}
+
+@unstable("'gpuUnifiedDist.createArray' with an 'initExpr' formal is unstable and may change in a future release")
+proc type gpuUnifiedDist.createArray(
+  rng: range(?)...,
+  type eltType,
+  initExpr: [?arrayDom] ?arrayEltType
+) where rng.size == arrayDom.rank && isCoercible(arrayEltType, eltType)
+{
+  return createArray({(...rng)}, eltType, initExpr);
+}
+
+
+proc chpl__computeBlock(locid, targetLocBox:domain(?), boundingBox:domain(?),
                         boundingBoxDims /* boundingBox.dims() */) {
   param rank = targetLocBox.rank;
   type idxType = boundingBox.idxType;
@@ -796,7 +1101,7 @@ proc chpl__computeBlock(locid, targetLocBox:domain, boundingBox:domain,
 proc LocGPUUnified.init(param rank: int,
                    type idxType,
                    locid, // the locale index from the target domain
-                   boundingBox: domain,
+                   boundingBox: domain(?),
                    boundingBoxDims /* boundingBox.dims() */,
                    targetLocDom: domain(rank)) {
   this.rank = rank;
@@ -813,6 +1118,13 @@ proc LocGPUUnified.init(param rank, type idxType, param dummy: bool) where dummy
 
 
 ////// GPUUnifiedDom and LocGPUUnifiedDom methods /////////////////////////////////////
+
+proc GPUUnifiedDom.dsiGetDist() {
+  if _isPrivatized(dist) then
+    return new gpuUnifiedDist(dist.pid, dist, _unowned=true);
+  else
+    return new gpuUnifiedDist(nullPid, dist, _unowned=true);
+}
 
 override proc GPUUnifiedDom.dsiDisplayRepresentation() {
   writeln("whole = ", whole);
@@ -921,8 +1233,7 @@ iter GPUUnifiedDom.these(param tag: iterKind, followThis) where tag == iterKind.
     var low  = wholeDim.orderToIndex(followDim.low);
     var high = wholeDim.orderToIndex(followDim.high);
     if wholeDim.hasNegativeStride() then low <=> high;
-    t(i) = ( low..high by (wholeDim.stride*followDim.stride)
-           ).safeCast(t(i).type);
+    t(i) = (low..high by (wholeDim.stride*followDim.stride)) : t(i).type;
   }
   for i in {(...t)} {
     yield i;
@@ -950,6 +1261,43 @@ proc GPUUnifiedDom.dsiBuildArray(type eltType, param initElts:bool) {
       const LBA = new unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides,
                                             locDomsElt,
                                             initElts=initElts);
+      locArrTempElt = LBA;
+      if here.id == creationLocale then
+        myLocArrTemp = LBA;
+    }
+  }
+  delete dummyLBA, dummyLBD;
+
+  var arr = new unmanaged GPUUnifiedArr(eltType=eltType, rank=rank, idxType=idxType,
+       strides=strides, sparseLayoutType=sparseLayoutType,
+       dom=_to_unmanaged(dom), locArr=locArrTemp, myLocArr=myLocArrTemp);
+
+  // formerly in GPUUnifiedArr.setup()
+  if arr.doRADOpt && disableGPUUnifiedLazyRAD then arr.setupRADOpt();
+
+  return arr;
+}
+
+proc GPUUnifiedDom.doiTryCreateArray(type eltType) throws {
+  const dom = this;
+  const creationLocale = here.id;
+  const dummyLBD = new unmanaged LocGPUUnifiedDom(rank, idxType, strides);
+  const dummyLBA = new unmanaged LocGPUUnifiedArr(eltType, rank, idxType,
+                                             strides, dummyLBD, false);
+  var locArrTemp: [dom.dist.targetLocDom]
+        unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides) = dummyLBA;
+  var myLocArrTemp: unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides)?;
+
+  // formerly in GPUUnifiedArr.setup()
+  coforall (loc, locDomsElt, locArrTempElt)
+    in zip(dom.dist.targetLocales, dom.locDoms, locArrTemp)
+           with (ref myLocArrTemp) {
+    on loc {
+      const locSize = locDomsElt.myBlock.size;
+      var data = _try_ddata_allocate(eltType, locSize);
+
+      const LBA = new unmanaged LocGPUUnifiedArr(eltType, rank, idxType, strides,
+                                            locDomsElt, data=data, size=locSize);
       locArrTempElt = LBA;
       if here.id == creationLocale then
         myLocArrTemp = LBA;
@@ -995,7 +1343,7 @@ override proc GPUUnifiedDom.dsiMyDist() do                   return dist;
 // INTERFACE NOTES: Could we make dsiSetIndices() for a rectangular
 // domain take a domain rather than something else?
 //
-proc GPUUnifiedDom.dsiSetIndices(x: domain) {
+proc GPUUnifiedDom.dsiSetIndices(x: domain(?)) {
   if x.rank != rank then
     compilerError("rank mismatch in domain assignment");
   if x._value.idxType != idxType then
@@ -1024,7 +1372,7 @@ proc GPUUnifiedDom.dsiSetIndices(x) {
   }
 }
 
-proc GPUUnifiedDom.dsiAssignDomain(rhs: domain, lhsPrivate:bool) {
+proc GPUUnifiedDom.dsiAssignDomain(rhs: domain(?), lhsPrivate:bool) {
   chpl_assignDomainWithGetSetIndices(this, rhs);
 }
 
@@ -1126,7 +1474,7 @@ override proc GPUUnifiedArr.dsiDestroyArr(deinitElts:bool) {
 
 inline proc GPUUnifiedArr.dsiLocalAccess(i: rank*idxType) ref {
   return if allowDuplicateTargetLocales then this.dsiAccess(i)
-                                        else _to_nonnil(myLocArr).this(i);
+                                        else _to_nonnil(myLocArr)(i);
 }
 
 //
@@ -1141,7 +1489,7 @@ inline proc GPUUnifiedArr.dsiAccess(const in idx: rank*idxType) ref {
   local {
     if const myLocArrNN = myLocArr then
       if myLocArrNN.locDom.contains(idx) then
-        return myLocArrNN.this(idx);
+        return myLocArrNN(idx);
   }
   return nonLocalAccess(idx);
 }
@@ -1221,9 +1569,9 @@ override proc GPUUnifiedArr.dsiStaticFastFollowCheck(type leadType) param {
 proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: []) do
   return this.dsiDynamicFastFollowCheck(lead.domain);
 
-proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: domain) {
+proc GPUUnifiedArr.dsiDynamicFastFollowCheck(lead: domain(?)) {
   // TODO: Should this return true for domains with the same shape?
-  return lead.dist.dsiEqualDMaps(this.dom.dist) && lead._value.whole == this.dom.whole;
+  return lead.distribution.dsiEqualDMaps(this.dom.dist) && lead._value.whole == this.dom.whole;
 }
 
 iter GPUUnifiedArr.these(param tag: iterKind, followThis, param fast: bool = false) ref where tag == iterKind.follower {
@@ -1246,7 +1594,8 @@ iter GPUUnifiedArr.these(param tag: iterKind, followThis, param fast: bool = fal
     // NOTE: Not bothering to check to see if these can fit into idxType
     var low = followThis(i).lowBound * abs(stride):idxType;
     var high = followThis(i).highBound * abs(stride):idxType;
-    myFollowThis(i) = ((low..high by stride) + dom.whole.dim(i).low by followThis(i).stride).safeCast(myFollowThis(i).type);
+    myFollowThis(i) = ((low..high by stride) + dom.whole.dim(i).low
+                       by followThis(i).stride) : myFollowThis(i).type;
     lowIdx(i) = myFollowThis(i).lowBound;
   }
 
@@ -1268,7 +1617,7 @@ iter GPUUnifiedArr.these(param tag: iterKind, followThis, param fast: bool = fal
       arrSection = _to_nonnil(myLocArr);
 
     local {
-      use CTypes; // Needed to cast from c_void_ptr in the next line
+      use CTypes; // Needed to cast from c_ptr(void) in the next line
       const narrowArrSection =
         __primitive("_wide_get_addr", arrSection):arrSection.type?;
       ref myElems = _to_nonnil(narrowArrSection).myElems;
@@ -1376,7 +1725,7 @@ override proc GPUUnifiedDom.dsiSupportsAutoLocalAccess() param {
 
 ///// Privatization and serialization ///////////////////////////////////////
 
-proc GPUUnified.init(other: GPUUnified, privateData,
+proc GPUUnifiedImpl.init(other: GPUUnifiedImpl(?), privateData,
                 param rank = other.rank,
                 type idxType = other.idxType,
                 type sparseLayoutType = other.sparseLayoutType) {
@@ -1392,20 +1741,20 @@ proc GPUUnified.init(other: GPUUnified, privateData,
   this.sparseLayoutType = sparseLayoutType;
 }
 
-override proc GPUUnified.dsiSupportsPrivatization() param do return true;
+override proc GPUUnifiedImpl.dsiSupportsPrivatization() param do return true;
 
-proc GPUUnified.dsiGetPrivatizeData() {
+proc GPUUnifiedImpl.dsiGetPrivatizeData() {
   return (boundingBox.dims(), targetLocDom.dims(),
           dataParTasksPerLocale, dataParIgnoreRunningTasks, dataParMinGranularity);
 }
 
-proc GPUUnified.dsiPrivatize(privatizeData) {
-  return new unmanaged GPUUnified(_to_unmanaged(this), privatizeData);
+proc GPUUnifiedImpl.dsiPrivatize(privatizeData) {
+  return new unmanaged GPUUnifiedImpl(_to_unmanaged(this), privatizeData);
 }
 
-proc GPUUnified.dsiGetReprivatizeData() do return boundingBox.dims();
+proc GPUUnifiedImpl.dsiGetReprivatizeData() do return boundingBox.dims();
 
-proc GPUUnified.dsiReprivatize(other, reprivatizeData) {
+proc GPUUnifiedImpl.dsiReprivatize(other, reprivatizeData) {
   boundingBox = {(...reprivatizeData)};
   targetLocDom = other.targetLocDom;
   targetLocales = other.targetLocales;
@@ -1520,11 +1869,11 @@ proc GPUUnifiedDom.dsiTargetLocales() const ref {
   return dist.targetLocales;
 }
 
-proc GPUUnified.dsiTargetLocales() const ref {
+proc GPUUnifiedImpl.dsiTargetLocales() const ref {
   return targetLocales;
 }
 
-proc GPUUnified.chpl__locToLocIdx(loc: locale) {
+proc GPUUnifiedImpl.chpl__locToLocIdx(loc: locale) {
   for locIdx in targetLocDom do
     if (targetLocales[locIdx] == loc) then
       return (true, locIdx);
@@ -1583,7 +1932,7 @@ proc GPUUnifiedDom.numRemoteElems(viewDom, rlo, rid) {
   return (bhi - (rlo - 1):idxType);
 }
 
-private proc canDoAnyToGPUUnified(Dest, destDom, Src, srcDom) param : bool {
+private proc canDoAnyToBlock(Dest, destDom, Src, srcDom) param : bool {
   if Src.doiCanBulkTransferRankChange() == false &&
      Dest.rank != Src.rank then return false;
 
@@ -1599,30 +1948,28 @@ private proc canDoAnyToGPUUnified(Dest, destDom, Src, srcDom) param : bool {
 }
 
 // GPUUnified = this
-proc GPUUnifiedArr.doiBulkTransferToKnown(srcDom, destClass:GPUUnifiedArr, destDom) : bool
+proc GPUUnifiedArr.doiBulkTransferToKnown(srcDom, destClass:GPUUnifiedArr(?), destDom) : bool
 where this.sparseLayoutType == unmanaged DefaultDist &&
       destClass.sparseLayoutType == unmanaged DefaultDist &&
       !disableGPUUnifiedDistBulkTransfer {
-  return _doSimpleGPUUnifiedTransfer(destClass, destDom, this, srcDom);
+  return _doSimpleBlockTransfer(destClass, destDom, this, srcDom);
 }
 
 // this = GPUUnified
-proc GPUUnifiedArr.doiBulkTransferFromKnown(destDom, srcClass:GPUUnifiedArr, srcDom) : bool
+proc GPUUnifiedArr.doiBulkTransferFromKnown(destDom, srcClass:GPUUnifiedArr(?), srcDom) : bool
 where this.sparseLayoutType == unmanaged DefaultDist &&
       srcClass.sparseLayoutType == unmanaged DefaultDist &&
       !disableGPUUnifiedDistBulkTransfer {
-  return _doSimpleGPUUnifiedTransfer(this, destDom, srcClass, srcDom);
+  return _doSimpleBlockTransfer(this, destDom, srcClass, srcDom);
 }
 
 proc GPUUnifiedArr.canDoOptimizedSwap(other) {
   var domsMatch = true;
 
   if this.dom != other.dom { // no need to check if this is true
-    if domsMatch {
-      for param i in 0..this.dom.rank-1 {
-        if this.dom.whole.dim(i) != other.dom.whole.dim(i) {
-          domsMatch = false;
-        }
+    for param i in 0..this.dom.rank-1 {
+      if this.dom.whole.dim(i) != other.dom.whole.dim(i) {
+        domsMatch = false;
       }
     }
   }
@@ -1678,7 +2025,7 @@ proc GPUUnifiedArr.doiOptimizedSwap(other) where debugOptimizedSwap {
   return false;
 }
 
-private proc _doSimpleGPUUnifiedTransfer(Dest, destDom, Src, srcDom) {
+private proc _doSimpleBlockTransfer(Dest, destDom, Src, srcDom) {
   if !chpl_allStridesArePositive(Dest, destDom, Src, srcDom) then return false;
 
   if debugGPUUnifiedDistBulkTransfer then
@@ -1722,11 +2069,11 @@ private proc _doSimpleGPUUnifiedTransfer(Dest, destDom, Src, srcDom) {
 // Overload for any transfer *to* GPUUnified, if the RHS supports transfers to a
 // DefaultRectangular
 proc GPUUnifiedArr.doiBulkTransferFromAny(destDom, Src, srcDom) : bool
-where canDoAnyToGPUUnified(this, destDom, Src, srcDom) {
+where canDoAnyToBlock(this, destDom, Src, srcDom) {
   if !chpl_allStridesArePositive(this, destDom, Src, srcDom) then return false;
 
   if debugGPUUnifiedDistBulkTransfer then
-    writeln("In GPUUnifiedDist.doiBulkTransferFromAny");
+    writeln("In gpuUnifiedDist.doiBulkTransferFromAny");
 
   coforall j in dom.dist.activeTargetLocales(destDom) {
     on dom.dist.targetLocales(j) {
@@ -1746,12 +2093,12 @@ where canDoAnyToGPUUnified(this, destDom, Src, srcDom) {
 }
 
 // For assignments of the form: DefaultRectangular = GPUUnified
-proc GPUUnifiedArr.doiBulkTransferToKnown(srcDom, Dest:DefaultRectangularArr, destDom) : bool
+proc GPUUnifiedArr.doiBulkTransferToKnown(srcDom, Dest:DefaultRectangularArr(?), destDom) : bool
 where !disableGPUUnifiedDistBulkTransfer {
   if !chpl_allStridesArePositive(this, srcDom, Dest, destDom) then return false;
 
   if debugGPUUnifiedDistBulkTransfer then
-    writeln("In GPUUnifiedDist.doiBulkTransferToKnown(DefaultRectangular)");
+    writeln("In gpuUnifiedDist.doiBulkTransferToKnown(DefaultRectangular)");
 
   coforall j in dom.dist.activeTargetLocales(srcDom) {
     on dom.dist.targetLocales(j) {
@@ -1772,7 +2119,7 @@ where !disableGPUUnifiedDistBulkTransfer {
 }
 
 // For assignments of the form: GPUUnified = DefaultRectangular
-proc GPUUnifiedArr.doiBulkTransferFromKnown(destDom, Src:DefaultRectangularArr, srcDom) : bool
+proc GPUUnifiedArr.doiBulkTransferFromKnown(destDom, Src:DefaultRectangularArr(?), srcDom) : bool
 where !disableGPUUnifiedDistBulkTransfer {
   if !chpl_allStridesArePositive(this, destDom, Src, srcDom) then return false;
 
@@ -1807,10 +2154,14 @@ config param debugGPUUnifiedScan = false;
  * suitable for general use since there are races with when the value gets
  * written to, but safe for single writer, single reader case here.
  */
-class BoxedSync {
+class BoxedSync : writeSerializable {
   type T;
   var s: sync int; // int over bool to enable native qthread sync
   var res: T;
+
+  proc init(type T) {
+    this.T = T;
+  }
 
   proc readFE(): T {
     s.readFE();
@@ -1824,6 +2175,7 @@ class BoxedSync {
 
   // guard against dynamic dispatch trying to resolve write()ing the sync
   override proc writeThis(f) throws { }
+  override proc serialize(writer, ref serializer) throws { }
 }
 
 proc GPUUnifiedArr.doiScan(op, dom) where (rank == 1) &&
@@ -1848,7 +2200,7 @@ proc GPUUnifiedArr.doiScan(op, dom) where (rank == 1) &&
   const sameDynamicDist = sameStaticDist && dsiDynamicFastFollowCheck(res);
 
   // Fire up tasks per participating locale
-  coforall locid in targetLocs.domain {
+  coforall locid in targetLocs.domain with (ref res, ref elemPerLoc, ref outputReady) {
     on targetLocs[locid] {
       const myop = op.clone(); // this will be deleted by doiScan()
 
@@ -1948,24 +2300,24 @@ proc GPUUnifiedArr.doiScan(op, dom) where (rank == 1) &&
 
 ////// Factory functions ////////////////////////////////////////////////////
 
-@deprecated(notes="'newGPUUnifiedDom' is deprecated - please use 'GPUUnified.createDomain' instead")
-proc newGPUUnifiedDom(dom: domain) {
-  return dom dmapped GPUUnified(dom);
+@deprecated(notes="'newGPUUnifiedDom' is deprecated - please use 'gpuUnifiedDist.createDomain' instead")
+proc newGPUUnifiedDom(dom: domain(?)) {
+  return dom dmapped gpuUnifiedDist(dom);
 }
 
-@deprecated(notes="'newGPUUnifiedArr' is deprecated - please use 'GPUUnified.createArray' instead")
-proc newGPUUnifiedArr(dom: domain, type eltType) {
+@deprecated(notes="'newGPUUnifiedArr' is deprecated - please use 'gpuUnifiedDist.createArray' instead")
+proc newGPUUnifiedArr(dom: domain(?), type eltType) {
   var D = newGPUUnifiedDom(dom);
   var A: [D] eltType;
   return A;
 }
 
-@deprecated(notes="'newGPUUnifiedDom' is deprecated - please use 'GPUUnified.createDomain' instead")
+@deprecated(notes="'newGPUUnifiedDom' is deprecated - please use 'gpuUnifiedDist.createDomain' instead")
 proc newGPUUnifiedDom(rng: range...) {
   return newGPUUnifiedDom({(...rng)});
 }
 
-@deprecated(notes="'newGPUUnifiedArr' is deprecated - please use 'GPUUnified.createArray' instead")
+@deprecated(notes="'newGPUUnifiedArr' is deprecated - please use 'gpuUnifiedDist.createArray' instead")
 proc newGPUUnifiedArr(rng: range..., type eltType) {
   return newGPUUnifiedArr({(...rng)}, eltType);
 }
