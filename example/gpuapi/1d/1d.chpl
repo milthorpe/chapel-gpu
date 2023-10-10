@@ -1,14 +1,14 @@
 use GPUAPI;
 use CTypes;
 
-extern proc kernel(dA: c_void_ptr, n: int);
+extern proc kernel(dA: c_ptr(void), n: int);
 
 var D = {0..31};
 var A: [D] int;
 var V: [D] int; // for verification
 
 // initialization proc
-proc init(arr: [?dom] int) {
+proc initialize(arr: [?dom] int) {
     for i in dom {
         arr[i] = i;
     }
@@ -17,9 +17,10 @@ proc init(arr: [?dom] int) {
 
 // MID-LOW
 // dA is a linearized 1D GPU array
-init(A);
 
-var dA: c_void_ptr;
+initialize(A);
+
+var dA: c_ptr(void);
 var size: c_size_t = A.size:c_size_t * c_sizeof(A.eltType);
 Malloc(dA, size);
 Memcpy(dA, c_ptrTo(A), size, 0);
@@ -35,7 +36,7 @@ if (A.equals(V)) {
 }
 
 // MID
-init(A);
+initialize(A);
 
 var dA2 = new GPUArray(A);
 dA2.toDevice();
