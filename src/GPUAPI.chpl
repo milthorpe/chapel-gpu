@@ -42,14 +42,14 @@ module GPUAPI {
     // cudaMallocManaged
     extern proc MallocManaged(ref umemPtr: c_ptr(?eltType), size: c_size_t);
     // cudaMemPrefetchAsync
-    extern proc PrefetchToDevice(umemPtr: c_void_ptr, start: c_size_t, end: c_size_t, device: int(32));
+    extern proc PrefetchToDevice(umemPtr: c_ptr(void), start: c_size_t, end: c_size_t, device: int(32));
 
     extern proc Memcpy(dst: c_ptr(void), src: c_ptr(void), count: c_size_t, kind: int);
     extern proc Memcpy2D(dst: c_ptr(void), dpitch: c_size_t, src: c_ptr(void), spitch: c_size_t, width: c_size_t, height: c_size_t, kind: int);
     extern proc Free(devPtr: c_ptr(void));
 
     pragma "no doc"
-    inline operator c_void_ptr.+(a: c_void_ptr, b: uint(64)) { return __primitive("+", a, b); }
+    inline operator c_ptr.+(a: c_ptr(void), b: uint(64)) { return __primitive("+", a, b); }
 
     class GPUArray {
       var devPtr: c_ptr(void);
@@ -236,18 +236,18 @@ module GPUAPI {
         Free(c_ptrTo(a));
       }
 
-      inline proc dPtr(): c_void_ptr {
+      inline proc dPtr(): c_ptr(void) {
         return c_ptrTo(a);
       }
 
       /*
       * Get a pointer to the element at the given index..
       */
-      inline proc dPtr(i: a.rank*a._value.dom.idxType): c_void_ptr {
+      inline proc dPtr(i: a.rank*a._value.dom.idxType): c_ptr(void) {
         return c_ptrTo(a(i));
       }
 
-      inline proc dPtr(i: a._value.dom.idxType ...a.rank): c_void_ptr {
+      inline proc dPtr(i: a._value.dom.idxType ...a.rank): c_ptr(void) {
         return dPtr(i);
       }
       
