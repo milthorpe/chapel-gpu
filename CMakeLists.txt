@@ -36,8 +36,7 @@ if(HIP_FOUND)
     NAMES hipify-perl
     PATHS
     ${HIP_ROOT_DIR}
-    PATH_SUFFIXES bin
-    NO_DEFAULT_PATH)
+    PATH_SUFFIXES bin)
   if(CHPL_GPU_HIPIFY_EXECUTABLE)
     message(STATUS "Found HIP: " ${HIP_VERSION})
     message(STATUS "Found HIPIFY: " ${CHPL_GPU_HIPIFY_EXECUTABLE})
