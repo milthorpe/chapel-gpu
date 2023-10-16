@@ -46,10 +46,14 @@ if(HIP_FOUND)
       COMMAND ${CHPL_GPU_HIPIFY_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/GPUAPI.cu > GPUAPI.hip.cc
       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
       DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/GPUAPI.cu
-      COMMENT "Convering GPUAPI.cu to GPUAPI.hip.cc"
+      COMMENT "Converting GPUAPI.cu to GPUAPI.hip.cc"
       )
     set(CMAKE_CXX_COMPILER ${HIP_HIPCC_EXECUTABLE})
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -fno-gpu-rdc -fPIC")
+    if( NOT DEFINED ENV{HIP_PLATFORM} OR ENV{HIP_PLATFORM} STREQUAL "nvidia")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -fno-gpu-rdc -fPIC")
+    else()
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -fPIC -allow-unsupported-compiler")
+    endif()
     hip_add_library(GPUAPIHIP SHARED GPUAPI.hip.cc)
     hip_add_library(GPUAPIHIP_static STATIC GPUAPI.hip.cc)
     set_target_properties(GPUAPIHIP PROPERTIES PUBLIC_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/GPUAPI.h)
