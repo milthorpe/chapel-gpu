@@ -105,7 +105,9 @@ extern "C" {
   }
 
   void PrefetchToDevice(void* umemPtr, size_t start, size_t end, int device) {
+  #ifdef HIP_PLATFORM_NVDIA
     CudaSafeCall(cudaMemPrefetchAsync(static_cast<char *>(umemPtr)+start, end-start, device, NULL));
+  #endif
   }
 
   void Memcpy(void* dst, void* src, size_t count, int kind) {
