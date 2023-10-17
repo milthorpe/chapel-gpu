@@ -48,7 +48,7 @@ module GPUAPI {
     extern proc Memcpy2D(dst: c_ptr(void), dpitch: c_size_t, src: c_ptr(void), spitch: c_size_t, width: c_size_t, height: c_size_t, kind: int);
     extern proc Free(devPtr: c_ptr(void));
 
-    pragma "no doc"
+    @chpldoc.nodoc
     inline operator c_ptr.+(a: c_ptr(void), b: uint(64)) { return __primitive("+", a, b); }
 
     class GPUArray {
@@ -223,7 +223,7 @@ module GPUAPI {
       var dom: domain; // TODO handle non-zero-based domains
       var a = makeArrayFromPtr(umemPtr, dom);
 
-      proc init(type etype, dom: domain) {
+      proc init(type etype, dom: domain(?)) {
         this.etype = etype;
         this.dom = dom;
         // allocation
